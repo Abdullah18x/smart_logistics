@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from app.core.enums import UserRole, UserStatus
+from app.constants.enums import UserRole, UserStatus
 from app.core.exceptions import (
     AccountInactiveError,
     AccountLockedError,

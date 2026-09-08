@@ -11,14 +11,15 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.access import AccessScope
-from app.core.enums import (
+from app.constants.enums import (
     PackageStatus,
     ServiceLevel,
     ShipmentStatus,
     UserRole,
     WarehouseStatus,
 )
+from app.constants.formats import PACKAGE_BARCODE_PREFIX
+from app.core.access import AccessScope
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.shipment_state_machine import assert_transition
 from app.models.address import Address
@@ -331,4 +332,4 @@ class ShipmentService:
 
     @staticmethod
     def _barcode() -> str:
-        return f"PKG{secrets.token_hex(8).upper()}"
+        return f"{PACKAGE_BARCODE_PREFIX}{secrets.token_hex(8).upper()}"

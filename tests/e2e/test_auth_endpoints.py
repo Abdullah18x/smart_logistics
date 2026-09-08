@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.core.enums import UserRole, UserStatus
+from app.constants.enums import UserRole, UserStatus
 from app.core.tokens import decode_access_token
 from tests.factories import TEST_PASSWORD
 

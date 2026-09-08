@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import StockMovementType
+from app.constants.enums import StockMovementType
 from app.models.inventory_item import InventoryItem
 from app.models.stock_movement import StockMovement
 from app.seeders.base import Seeder, seed_id

@@ -4,7 +4,7 @@ import uuid
 
 from sqlalchemy import func, or_, select
 
-from app.core.enums import UserRole, UserStatus
+from app.constants.enums import UserRole, UserStatus
 from app.models.user import User
 from app.repositories.base import BaseRepository
 

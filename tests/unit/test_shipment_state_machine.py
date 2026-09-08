@@ -7,7 +7,7 @@ not just the behaviour of the two functions that read it.
 
 import pytest
 
-from app.core.enums import ShipmentStatus as S
+from app.constants.enums import ShipmentStatus as S
 from app.core.exceptions import ConflictError
 from app.core.shipment_state_machine import (
     ALLOWED_TRANSITIONS,

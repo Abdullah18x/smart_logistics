@@ -6,9 +6,9 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants.enums import UserRole
 from app.core.access import AccessScope
 from app.core.database import get_db_session
-from app.core.enums import UserRole
 from app.core.exceptions import AuthenticationError, PermissionDeniedError
 from app.models.user import User
 from app.repositories.courier_repository import CourierRepository

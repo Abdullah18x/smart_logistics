@@ -7,7 +7,8 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.core.enums import UserRole, UserStatus
+from app.constants.enums import UserRole, UserStatus
+from app.constants.formats import PHONE_PATTERN
 
 PASSWORD_MIN_LENGTH = 12
 _PASSWORD_RULES = (
@@ -47,7 +48,7 @@ class UserBase(BaseModel):
     phone: str | None = Field(
         default=None,
         max_length=32,
-        pattern=r"^\+?[0-9\s\-()]{7,32}$",
+        pattern=PHONE_PATTERN,
         description="E.164 preferred. Used for courier and support contact.",
     )
 
@@ -85,7 +86,7 @@ class UserUpdate(BaseModel):
     """Self-service profile update. Role and status are deliberately absent."""
 
     full_name: str | None = Field(default=None, min_length=2, max_length=200)
-    phone: str | None = Field(default=None, max_length=32, pattern=r"^\+?[0-9\s\-()]{7,32}$")
+    phone: str | None = Field(default=None, max_length=32, pattern=PHONE_PATTERN)
 
 
 class UserRoleUpdate(BaseModel):

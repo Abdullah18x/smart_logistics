@@ -14,8 +14,7 @@ from datetime import UTC, datetime, time, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.access import AccessScope
-from app.core.enums import (
+from app.constants.enums import (
     CourierAvailability,
     ReservationStatus,
     ServiceLevel,
@@ -29,6 +28,7 @@ from app.core.enums import (
     Weekday,
     ZoneType,
 )
+from app.core.access import AccessScope
 from app.core.security import hash_password
 from app.models.address import Address
 from app.models.courier import Courier

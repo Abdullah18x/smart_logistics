@@ -7,6 +7,36 @@ from sqlalchemy import DateTime, MetaData, Uuid, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+# Re-exported so every existing `from app.models.base import IDENTITY_SCHEMA`
+# (and friends) keeps working — the constants themselves live in
+# app.constants.database, which has no dependents of its own, so models can
+# depend on it without models and constants ever needing each other.
+from app.constants.database import (
+    CATALOG_SCHEMA,
+    COURIER_SCHEMA,
+    IDENTITY_SCHEMA,
+    INVENTORY_SCHEMA,
+    PLATFORM_SCHEMA,
+    SHIPMENT_SCHEMA,
+    WAREHOUSE_SCHEMA,
+)
+
+__all__ = [
+    "CATALOG_SCHEMA",
+    "COURIER_SCHEMA",
+    "IDENTITY_SCHEMA",
+    "INVENTORY_SCHEMA",
+    "NAMING_CONVENTION",
+    "PLATFORM_SCHEMA",
+    "SHIPMENT_SCHEMA",
+    "WAREHOUSE_SCHEMA",
+    "Base",
+    "SoftDeleteMixin",
+    "TimestampMixin",
+    "UUIDPrimaryKeyMixin",
+    "pg_enum",
+]
+
 # Deterministic constraint names keep Alembic autogenerate diffs stable.
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -56,16 +86,6 @@ class TimestampMixin:
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
-
-
-# Postgres schema per module (ADR-008).
-IDENTITY_SCHEMA = "identity"
-WAREHOUSE_SCHEMA = "warehouses"
-CATALOG_SCHEMA = "catalog"
-INVENTORY_SCHEMA = "inventory"
-SHIPMENT_SCHEMA = "shipments"
-COURIER_SCHEMA = "couriers"
-PLATFORM_SCHEMA = "platform"
 
 
 def pg_enum(enum_class: type, name: str, schema: str) -> SAEnum:

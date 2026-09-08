@@ -3,6 +3,7 @@
 from sqlalchemy import CheckConstraint, Float, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.constants.formats import DEFAULT_COUNTRY_CODE
 from app.models.base import SHIPMENT_SCHEMA, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
@@ -33,7 +34,9 @@ class Address(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     city: Mapped[str] = mapped_column(String(100), nullable=False)
     region: Mapped[str | None] = mapped_column(String(100))
     postal_code: Mapped[str | None] = mapped_column(String(20))
-    country_code: Mapped[str] = mapped_column(String(2), nullable=False, server_default="PK")
+    country_code: Mapped[str] = mapped_column(
+        String(2), nullable=False, server_default=DEFAULT_COUNTRY_CODE
+    )
 
     # Geolocation for routing and geofenced delivery confirmation (ADR-015).
     latitude: Mapped[float | None] = mapped_column(Float)

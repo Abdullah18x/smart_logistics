@@ -201,8 +201,8 @@ class TestFailedWritesLeaveNothingBehind:
     ):
         """The shipment, its address and its lines are all created before the hold
         is attempted, so only the transaction stops them becoming real."""
+        from app.constants.enums import UserRole
         from app.core.access import AccessScope
-        from app.core.enums import UserRole
         from app.schemas.shipment import ShipmentCreate
         from app.services.shipment_service import ShipmentService
 

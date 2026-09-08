@@ -24,8 +24,9 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants.enums import ReservationStatus, StockMovementType
+from app.constants.formats import RESERVATION_IDEMPOTENCY_KEY_TEMPLATE
 from app.core.config import settings
-from app.core.enums import ReservationStatus, StockMovementType
 from app.core.exceptions import ConflictError
 from app.models.inventory_item import InventoryItem
 from app.models.inventory_reservation import InventoryReservation
@@ -99,7 +100,9 @@ class InventoryService:
                 status=ReservationStatus.HELD,
                 expires_at=expires_at,
                 # Deterministic, so a retried reserve cannot double-hold.
-                idempotency_key=f"shipment:{shipment_id}:sku:{sku_id}",
+                idempotency_key=RESERVATION_IDEMPOTENCY_KEY_TEMPLATE.format(
+                    shipment_id=shipment_id, sku_id=sku_id
+                ),
             )
             self.session.add(reservation)
             reservations.append(reservation)

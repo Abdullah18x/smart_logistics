@@ -5,14 +5,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.enums import ZoneType
+from app.constants.enums import ZoneType
+from app.constants.formats import CODE_PATTERN
 
 
 class WarehouseZoneBase(BaseModel):
     code: str = Field(
         min_length=1,
         max_length=16,
-        pattern=r"^[A-Za-z0-9\-]+$",
+        pattern=CODE_PATTERN,
         description="Unique within its warehouse, e.g. 'A1'. Stored uppercase.",
     )
     name: str = Field(min_length=2, max_length=150)

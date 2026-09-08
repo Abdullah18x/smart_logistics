@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.constants.formats import DEFAULT_CURRENCY, SKU_CODE_PATTERN
+
 
 class SkuBase(BaseModel):
     name: str = Field(min_length=2, max_length=200)
@@ -23,7 +25,7 @@ class SkuBase(BaseModel):
     requires_cold_chain: bool = False
 
     unit_value: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
-    currency: str = Field(default="PKR", min_length=3, max_length=3)
+    currency: str = Field(default=DEFAULT_CURRENCY, min_length=3, max_length=3)
 
     @field_validator("currency", mode="before")
     @classmethod
@@ -49,7 +51,7 @@ class SkuCreate(SkuBase):
         }
     )
 
-    code: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z0-9\-_]+$")
+    code: str = Field(min_length=2, max_length=64, pattern=SKU_CODE_PATTERN)
 
     @field_validator("code", mode="before")
     @classmethod

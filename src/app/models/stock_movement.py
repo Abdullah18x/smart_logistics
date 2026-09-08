@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.enums import StockMovementType
+from app.constants.enums import StockMovementType
 from app.models.base import (
     CATALOG_SCHEMA,
     IDENTITY_SCHEMA,

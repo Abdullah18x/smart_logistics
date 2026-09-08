@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import PackageStatus
+from app.constants.enums import PackageStatus
 from app.models.base import SHIPMENT_SCHEMA, Base, TimestampMixin, UUIDPrimaryKeyMixin, pg_enum
 
 if TYPE_CHECKING:

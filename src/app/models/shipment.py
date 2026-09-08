@@ -16,7 +16,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import ServiceLevel, ShipmentPriority, ShipmentStatus
+from app.constants.enums import ServiceLevel, ShipmentPriority, ShipmentStatus
+from app.constants.formats import DEFAULT_CURRENCY
 from app.models.base import (
     COURIER_SCHEMA,
     IDENTITY_SCHEMA,
@@ -108,7 +109,9 @@ class Shipment(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
         Integer, nullable=False, default=0, server_default=text("0")
     )
     declared_value: Mapped[float | None] = mapped_column(Numeric(12, 2))
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="PKR")
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default=DEFAULT_CURRENCY
+    )
 
     # Lifecycle timestamps. Each is set once, by the transition that earns it.
     promised_delivery_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -9,8 +9,8 @@ account can actually log in.
 import pytest
 from sqlalchemy import func, select
 
+from app.constants.enums import UserRole, UserStatus
 from app.core.config import settings
-from app.core.enums import UserRole, UserStatus
 from app.models.courier import Courier
 from app.models.inventory_item import InventoryItem
 from app.models.shipment import Shipment

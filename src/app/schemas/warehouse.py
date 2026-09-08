@@ -7,7 +7,14 @@ from zoneinfo import available_timezones
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.core.enums import WarehouseStatus, WarehouseType
+from app.constants.enums import WarehouseStatus, WarehouseType
+from app.constants.formats import (
+    CODE_PATTERN,
+    DEFAULT_COUNTRY_CODE,
+    DEFAULT_GEOFENCE_RADIUS_M,
+    DEFAULT_TIMEZONE,
+    PHONE_PATTERN,
+)
 from app.schemas.warehouse_operating_hours import OperatingHoursRead, OperatingHoursWrite
 from app.schemas.warehouse_zone import WarehouseZoneCreate, WarehouseZoneRead
 
@@ -25,7 +32,7 @@ class WarehouseBase(BaseModel):
     region: str | None = Field(default=None, max_length=100)
     postal_code: str | None = Field(default=None, max_length=20)
     country_code: str = Field(
-        default="PK", min_length=2, max_length=2, description="ISO 3166-1 alpha-2."
+        default=DEFAULT_COUNTRY_CODE, min_length=2, max_length=2, description="ISO 3166-1 alpha-2."
     )
 
     latitude: Latitude | None = Field(default=None, description="Facility centroid.")
@@ -40,7 +47,7 @@ class WarehouseBase(BaseModel):
         description="Provider-stable place reference, e.g. a Google place_id or OSM node.",
     )
     geofence_radius_m: int = Field(
-        default=150,
+        default=DEFAULT_GEOFENCE_RADIUS_M,
         gt=0,
         le=5000,
         description="Radius around the entrance that counts as 'at the warehouse'.",
@@ -51,14 +58,12 @@ class WarehouseBase(BaseModel):
         default=None, gt=0, description="Shipments per day this facility can dispatch."
     )
     timezone: str = Field(
-        default="Asia/Karachi", description="IANA name. Operating hours are local to it."
+        default=DEFAULT_TIMEZONE, description="IANA name. Operating hours are local to it."
     )
 
     contact_name: str | None = Field(default=None, max_length=150)
     contact_email: EmailStr | None = None
-    contact_phone: str | None = Field(
-        default=None, max_length=32, pattern=r"^\+?[0-9\s\-()]{7,32}$"
-    )
+    contact_phone: str | None = Field(default=None, max_length=32, pattern=PHONE_PATTERN)
     notes: str | None = Field(default=None, max_length=1000)
 
     @field_validator("country_code", mode="before")
@@ -105,7 +110,7 @@ class WarehouseCreate(WarehouseBase):
     code: str = Field(
         min_length=2,
         max_length=16,
-        pattern=r"^[A-Za-z0-9\-]+$",
+        pattern=CODE_PATTERN,
         description="Globally unique facility code, e.g. 'KHI-01'. Stored uppercase.",
     )
     #: Optional in the same request, so a facility can be created ready to use.

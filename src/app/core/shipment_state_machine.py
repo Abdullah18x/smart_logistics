@@ -5,7 +5,7 @@ place is what makes the lifecycle auditable — a transition that is not listed
 cannot happen anywhere in the codebase.
 """
 
-from app.core.enums import ShipmentStatus as S
+from app.constants.enums import ShipmentStatus as S
 from app.core.exceptions import ConflictError
 
 #: status -> statuses reachable from it. An empty set marks a terminal state.

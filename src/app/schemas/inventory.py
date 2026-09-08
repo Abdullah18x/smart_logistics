@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.enums import ReservationStatus, StockMovementType
+from app.constants.enums import ReservationStatus, StockMovementType
 from app.schemas.sku import SkuSummary
 
 

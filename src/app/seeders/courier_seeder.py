@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import CourierAvailability, VehicleType
+from app.constants.enums import CourierAvailability, VehicleType
 from app.models.courier import Courier
 from app.seeders.base import Seeder, seed_id
 

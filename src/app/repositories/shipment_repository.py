@@ -7,7 +7,8 @@ from datetime import UTC, datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
-from app.core.enums import ServiceLevel, ShipmentPriority, ShipmentStatus
+from app.constants.enums import ServiceLevel, ShipmentPriority, ShipmentStatus
+from app.constants.formats import SHIPMENT_REFERENCE_PREFIX
 from app.models.address import Address
 from app.models.package import Package
 from app.models.shipment import Shipment
@@ -48,7 +49,7 @@ class ShipmentRepository(BaseRepository[Shipment]):
     async def next_reference_no(self) -> str:
         """Draws from a Postgres sequence, so concurrent creates cannot collide."""
         value = await self.session.scalar(select(func.nextval("shipments.shipment_reference_seq")))
-        return f"SL-{datetime.now(UTC).year}-{value:06d}"
+        return f"{SHIPMENT_REFERENCE_PREFIX}{datetime.now(UTC).year}-{value:06d}"
 
     async def list_shipments(
         self,

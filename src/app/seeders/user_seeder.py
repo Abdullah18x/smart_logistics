@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants.enums import UserRole, UserStatus
 from app.core.config import settings
-from app.core.enums import UserRole, UserStatus
 from app.core.security import hash_password
 from app.models.user import User
 from app.models.user_warehouse_assignment import UserWarehouseAssignment

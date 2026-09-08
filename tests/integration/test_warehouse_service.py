@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.core.enums import UserRole, WarehouseStatus, WarehouseType, ZoneType
+from app.constants.enums import UserRole, WarehouseStatus, WarehouseType, ZoneType
 from app.core.exceptions import NotFoundError, PermissionDeniedError
 from app.models.warehouse import Warehouse
 from app.models.warehouse_zone import WarehouseZone

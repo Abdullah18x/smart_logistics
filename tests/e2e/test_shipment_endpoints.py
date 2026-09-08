@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from app.core.enums import ShipmentStatus, UserRole
+from app.constants.enums import ShipmentStatus, UserRole
 
 SHIPMENTS = "/api/v1/shipments"
 ADDRESS = {

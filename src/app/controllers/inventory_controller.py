@@ -4,13 +4,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
+from app.constants.enums import ReservationStatus, UserRole
 from app.controllers.dependencies import (
     InventoryServiceDep,
     Scope,
     SessionDep,
     require_roles,
 )
-from app.core.enums import ReservationStatus, UserRole
 from app.models.inventory_item import InventoryItem
 from app.models.inventory_reservation import InventoryReservation
 from app.models.user import User

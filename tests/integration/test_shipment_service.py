@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from app.core.enums import (
+from app.constants.enums import (
     PackageStatus,
     ServiceLevel,
     ShipmentPriority,
@@ -530,7 +530,7 @@ class TestStockEffectsOfTransitions:
         assert item.on_hand_qty == 100
 
     async def test_cancelling_marks_the_holds_released(self, shipments, factory, world, db_session):
-        from app.core.enums import ReservationStatus
+        from app.constants.enums import ReservationStatus
 
         admin, warehouse, sku, _ = world
         scope = factory.scope(admin)

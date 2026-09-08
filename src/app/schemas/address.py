@@ -5,13 +5,15 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.constants.formats import DEFAULT_COUNTRY_CODE, PHONE_PATTERN
+
 Latitude = Annotated[float, Field(ge=-90, le=90)]
 Longitude = Annotated[float, Field(ge=-180, le=180)]
 
 
 class AddressBase(BaseModel):
     contact_name: str = Field(min_length=2, max_length=150)
-    contact_phone: str = Field(max_length=32, pattern=r"^\+?[0-9\s\-()]{7,32}$")
+    contact_phone: str = Field(max_length=32, pattern=PHONE_PATTERN)
     contact_email: EmailStr | None = None
 
     line1: str = Field(min_length=3, max_length=255)
@@ -19,7 +21,7 @@ class AddressBase(BaseModel):
     city: str = Field(min_length=2, max_length=100)
     region: str | None = Field(default=None, max_length=100)
     postal_code: str | None = Field(default=None, max_length=20)
-    country_code: str = Field(default="PK", min_length=2, max_length=2)
+    country_code: str = Field(default=DEFAULT_COUNTRY_CODE, min_length=2, max_length=2)
 
     latitude: Latitude | None = None
     longitude: Longitude | None = None

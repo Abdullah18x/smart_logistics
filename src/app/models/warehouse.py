@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import WarehouseStatus, WarehouseType
+from app.constants.enums import WarehouseStatus, WarehouseType
+from app.constants.formats import DEFAULT_COUNTRY_CODE, DEFAULT_GEOFENCE_RADIUS_M, DEFAULT_TIMEZONE
 from app.models.base import (
     WAREHOUSE_SCHEMA,
     Base,
@@ -78,7 +79,9 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     city: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     region: Mapped[str | None] = mapped_column(String(100))
     postal_code: Mapped[str | None] = mapped_column(String(20))
-    country_code: Mapped[str] = mapped_column(String(2), nullable=False, server_default="PK")
+    country_code: Mapped[str] = mapped_column(
+        String(2), nullable=False, server_default=DEFAULT_COUNTRY_CODE
+    )
 
     # --- Geolocation and live tracking (ADR-015) ---
     # Centroid of the facility. Used for distance and routing calculations.
@@ -98,7 +101,10 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     # Radius around the entrance that counts as "at the warehouse". Arrival and
     # departure events are derived by testing courier pings against this circle.
     geofence_radius_m: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=150, server_default="150"
+        Integer,
+        nullable=False,
+        default=DEFAULT_GEOFENCE_RADIUS_M,
+        server_default=str(DEFAULT_GEOFENCE_RADIUS_M),
     )
 
     # When the coordinates were last resolved from the address, so stale
@@ -112,7 +118,9 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     )
 
     # Operating hours are stored as local times; this is how they are interpreted.
-    timezone: Mapped[str] = mapped_column(String(64), nullable=False, server_default="Asia/Karachi")
+    timezone: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=DEFAULT_TIMEZONE
+    )
 
     contact_name: Mapped[str | None] = mapped_column(String(150))
     contact_email: Mapped[str | None] = mapped_column(String(320))

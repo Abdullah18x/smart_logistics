@@ -5,7 +5,7 @@ from datetime import time
 import pytest
 from pydantic import ValidationError
 
-from app.core.enums import Weekday, ZoneType
+from app.constants.enums import Weekday, ZoneType
 from app.schemas.warehouse import WarehouseCreate, WarehouseUpdate
 from app.schemas.warehouse_operating_hours import OperatingHoursWrite, WeeklyScheduleUpdate
 from app.schemas.warehouse_zone import WarehouseZoneCreate

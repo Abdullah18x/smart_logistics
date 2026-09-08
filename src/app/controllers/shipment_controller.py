@@ -5,18 +5,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Query, status
 from fastapi.responses import JSONResponse
 
+from app.constants.enums import (
+    ServiceLevel,
+    ShipmentPriority,
+    ShipmentStatus,
+    UserRole,
+)
 from app.controllers.dependencies import (
     CurrentUser,
     IdempotencyServiceDep,
     Scope,
     ShipmentServiceDep,
     require_roles,
-)
-from app.core.enums import (
-    ServiceLevel,
-    ShipmentPriority,
-    ShipmentStatus,
-    UserRole,
 )
 from app.models.user import User
 from app.schemas.common import Page, Problem

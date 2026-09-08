@@ -8,7 +8,7 @@ from datetime import timedelta
 
 import pytest
 
-from app.core.enums import ServiceLevel, ShipmentStatus, UserRole
+from app.constants.enums import ServiceLevel, ShipmentStatus, UserRole
 from app.core.shipment_state_machine import ALLOWED_TRANSITIONS, HOLDS_INVENTORY
 from app.services.shipment_service import (
     EDITABLE_STATUSES,

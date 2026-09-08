@@ -10,8 +10,8 @@ import uuid
 
 import pytest
 
+from app.constants.enums import UserRole
 from app.core.access import AccessScope
-from app.core.enums import UserRole
 
 WAREHOUSE_A = uuid.uuid4()
 WAREHOUSE_B = uuid.uuid4()

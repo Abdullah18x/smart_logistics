@@ -6,7 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import ServiceLevel, ShipmentPriority, ShipmentStatus
+from app.constants.enums import ServiceLevel, ShipmentPriority, ShipmentStatus
+from app.constants.formats import DEFAULT_CURRENCY
 from app.schemas.address import AddressCreate, AddressRead
 from app.schemas.package import PackageCreate, PackageRead
 
@@ -72,7 +73,7 @@ class ShipmentCreate(BaseModel):
         default=None, description="Left unset, it is derived from the service level."
     )
     declared_value: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
-    currency: str = Field(default="PKR", min_length=3, max_length=3)
+    currency: str = Field(default=DEFAULT_CURRENCY, min_length=3, max_length=3)
     special_instructions: str | None = Field(default=None, max_length=500)
 
 

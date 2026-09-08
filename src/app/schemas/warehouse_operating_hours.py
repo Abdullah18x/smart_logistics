@@ -5,7 +5,7 @@ from datetime import time
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.enums import Weekday
+from app.constants.enums import Weekday
 
 
 class OperatingHoursBase(BaseModel):

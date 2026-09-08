@@ -7,7 +7,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.enums import CourierAvailability, VehicleType
+from app.constants.enums import CourierAvailability, VehicleType
+from app.constants.formats import CODE_PATTERN, PHONE_PATTERN
 
 Latitude = Annotated[float, Field(ge=-90, le=90)]
 Longitude = Annotated[float, Field(ge=-180, le=180)]
@@ -15,7 +16,7 @@ Longitude = Annotated[float, Field(ge=-180, le=180)]
 
 class CourierBase(BaseModel):
     full_name: str = Field(min_length=2, max_length=200)
-    phone: str = Field(max_length=32, pattern=r"^\+?[0-9\s\-()]{7,32}$")
+    phone: str = Field(max_length=32, pattern=PHONE_PATTERN)
 
     vehicle_type: VehicleType = VehicleType.MOTORCYCLE
     vehicle_registration: str | None = Field(default=None, max_length=32)
@@ -50,7 +51,7 @@ class CourierCreate(CourierBase):
         }
     )
 
-    employee_code: str = Field(min_length=2, max_length=32, pattern=r"^[A-Za-z0-9\-]+$")
+    employee_code: str = Field(min_length=2, max_length=32, pattern=CODE_PATTERN)
     #: Links to the login account. Omitted for partner couriers with no login.
     user_id: uuid.UUID | None = None
 

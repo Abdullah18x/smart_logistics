@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import AssignmentStatus
+from app.constants.enums import AssignmentStatus
 from app.schemas.courier import CourierSummary
 
 

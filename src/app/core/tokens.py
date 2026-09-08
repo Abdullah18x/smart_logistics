@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 
+from app.constants.enums import TokenType, UserRole
 from app.core.config import settings
-from app.core.enums import TokenType, UserRole
 from app.core.exceptions import AuthenticationError
 
 

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import PackageStatus
+from app.constants.enums import PackageStatus
 
 
 class PackageCreate(BaseModel):

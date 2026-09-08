@@ -654,13 +654,14 @@ smart-logistics-be/
 ├── docker-compose.override.yml   local reload, applied automatically
 ├── docs/                     architecture, database reference, build log, ADRs, curl collection
 ├── src/app/
+│   ├── constants/            system-defined enums, patterns and defaults — single source of truth
 │   ├── controllers/          routes, dependencies, RBAC gates
 │   ├── services/             business logic, transaction boundaries
 │   ├── repositories/         database access
 │   ├── models/               SQLAlchemy models, one file per entity
 │   ├── schemas/              Pydantic request / response contracts
 │   ├── seeders/              development data, one seeder per entity
-│   ├── core/                 config, database, security, enums, exceptions
+│   ├── core/                 config, database, security, tokens, exceptions
 │   └── main.py               application factory
 ├── migrations/               Alembic
 ├── tests/                    unit, integration, e2e

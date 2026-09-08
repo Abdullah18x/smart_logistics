@@ -476,7 +476,7 @@ WSL2 avoids all of this — `make` works there exactly as on Linux.
 
 ## Automated tests
 
-701 tests across three layers, at 92% line coverage.
+705 tests across three layers, at 92% line coverage.
 
 ```bash
 make test              # or: .venv/bin/pytest   —   Windows: .venv\Scripts\pytest
@@ -506,16 +506,17 @@ See [phase_1.md §10b](docs/phase_1.md) for what the suite covers and why.
 Dockerfile          multi-stage; the runtime target is non-root
 docker-compose.yml  Postgres, Redis, migrations, API
 src/app/
+  constants/        system-defined enums, patterns and defaults — the single source of truth
   controllers/      HTTP routes, dependencies, RBAC gates
   services/         business logic, transaction boundaries
   repositories/     database access
   models/           SQLAlchemy models — one file per entity
   schemas/          Pydantic request/response contracts
   seeders/          development data — one seeder per entity
-  core/             config, database, security, enums, exceptions
+  core/             config, database, security, tokens, exceptions
   main.py           application factory
 migrations/         Alembic — 9 revisions
-tests/              unit (273), integration (289), e2e (139)
+tests/              unit (277), integration (293), e2e (139)
 deploy/
   docker/           container entrypoint
   k8s/              base manifests + aws / azure overlays
@@ -531,6 +532,8 @@ scripts/            API collection generator
   against them was reversed once an audit found 15 unprotected references (ADR-008, amended)
 - Repositories never commit; services own the transaction boundary
 - Nothing user-facing is hard-deleted — soft delete with `deleted_at` (ADR-016)
+- Statuses, roles and category values live in `constants/enums.py`, not scattered across the
+  models and schemas that use them — see [phase_1.md §3](docs/phase_1.md)
 
 ---
 

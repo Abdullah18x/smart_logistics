@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import UserRole, UserStatus
+from app.constants.enums import UserRole, UserStatus
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.security import hash_password, verify_password
 from app.models.user import User

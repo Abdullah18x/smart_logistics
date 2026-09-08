@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from app.constants.enums import UserRole, WarehouseStatus, WarehouseType
 from app.controllers.dependencies import (
     CurrentUser,
     Scope,
@@ -10,7 +11,6 @@ from app.controllers.dependencies import (
     require_admin,
     require_roles,
 )
-from app.core.enums import UserRole, WarehouseStatus, WarehouseType
 from app.models.user import User
 from app.schemas.common import Page, Problem
 from app.schemas.warehouse import (

@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from app.core.enums import UserRole, WarehouseStatus
+from app.constants.enums import UserRole, WarehouseStatus
 
 WAREHOUSES = "/api/v1/warehouses"
 

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.enums import ReservationStatus, UserRole
+from app.constants.enums import ReservationStatus, UserRole
 
 INVENTORY = "/api/v1/inventory"
 

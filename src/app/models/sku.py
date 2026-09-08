@@ -3,6 +3,7 @@
 from sqlalchemy import Boolean, CheckConstraint, Index, Integer, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.constants.formats import DEFAULT_CURRENCY
 from app.models.base import (
     CATALOG_SCHEMA,
     Base,
@@ -61,7 +62,9 @@ class Sku(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
     # Declared value per unit, used for insurance and customs paperwork.
     unit_value: Mapped[float | None] = mapped_column(Numeric(12, 2))
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="PKR")
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default=DEFAULT_CURRENCY
+    )
 
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")

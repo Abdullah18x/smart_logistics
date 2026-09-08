@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from app.core.enums import ReservationStatus, ShipmentStatus, StockMovementType
+from app.constants.enums import ReservationStatus, ShipmentStatus, StockMovementType
 from app.models.inventory_reservation import InventoryReservation
 from app.models.stock_movement import StockMovement
 from app.services.inventory_service import InsufficientStockError, InventoryService

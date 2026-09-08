@@ -8,7 +8,7 @@ hasher.
 import pytest
 from pydantic import ValidationError
 
-from app.core.enums import UserRole, UserStatus
+from app.constants.enums import UserRole, UserStatus
 from app.schemas.auth import LoginRequest, PasswordResetRequest
 from app.schemas.user import (
     PASSWORD_MIN_LENGTH,

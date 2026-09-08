@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import CourierAvailability, VehicleType
+from app.constants.enums import CourierAvailability, VehicleType
 from app.models.base import (
     COURIER_SCHEMA,
     IDENTITY_SCHEMA,

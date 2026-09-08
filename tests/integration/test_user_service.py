@@ -11,8 +11,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.constants.enums import UserRole, UserStatus
 from app.core.db_errors import translate
-from app.core.enums import UserRole, UserStatus
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.security import verify_password
 from app.models.refresh_token import RefreshToken

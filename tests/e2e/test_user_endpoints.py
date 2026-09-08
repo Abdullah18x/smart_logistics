@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from app.core.enums import UserRole, UserStatus
+from app.constants.enums import UserRole, UserStatus
 from tests.factories import TEST_PASSWORD
 
 USERS = "/api/v1/users"

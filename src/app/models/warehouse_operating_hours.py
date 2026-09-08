@@ -15,7 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import Weekday
+from app.constants.enums import Weekday
 from app.models.base import WAREHOUSE_SCHEMA, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:

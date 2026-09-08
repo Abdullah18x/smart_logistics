@@ -8,7 +8,7 @@ Blanket role checks alone would let a courier enumerate another courier's work.
 import uuid
 from dataclasses import dataclass
 
-from app.core.enums import UserRole
+from app.constants.enums import UserRole
 
 
 @dataclass(frozen=True)

@@ -21,7 +21,7 @@ Week 1 of the execution plan calls for:
 | Docker setup operational | ✅ Done — image, Compose stack and Kubernetes manifests |
 
 **At a glance:** 18 tables across 7 schemas, 42 endpoints, 9 migrations, 29 foreign keys,
-78 application files, and 701 automated tests at 92% line coverage. Runs in Docker; deploys to
+81 application files, and 705 automated tests at 92% line coverage. Runs in Docker; deploys to
 Kubernetes on EKS or AKS.
 
 This document records what exists today, why it was built that way, and what remains.
@@ -62,16 +62,17 @@ tree always reflects what actually exists — deferred folders are listed in
 
 ```
 src/app/
+├── constants/       system-defined enums, patterns, defaults — one source of truth
 ├── controllers/     HTTP routes, dependencies, RBAC gates
 ├── services/        business logic, transaction boundaries
 ├── repositories/    database access
 ├── models/          SQLAlchemy models — one file per entity
 ├── schemas/         Pydantic request/response contracts
 ├── seeders/         development data — one seeder per entity
-├── core/            config, database, security, tokens, enums, exceptions
+├── core/            config, database, security, tokens, exceptions
 └── main.py          application factory
 
-tests/               unit (273), integration (289), e2e (139)
+tests/               unit (277), integration (293), e2e (139)
 migrations/          9 Alembic revisions
 deploy/
 ├── docker/          container entrypoint
@@ -82,7 +83,7 @@ scripts/             API collection generator
 Packaging lives at the root: `Dockerfile`, `docker-compose.yml` and
 `docker-compose.override.yml`. See [§10c](#10c-packaging-and-deployment).
 
-**78 application files in `src/`** (plus 2 in `scripts/` and 35 under `tests/`), across:
+**81 application files in `src/`** (plus 2 in `scripts/` and 36 under `tests/`), across:
 
 | Layer | Modules |
 |---|---|
@@ -92,7 +93,24 @@ Packaging lives at the root: `Dockerfile`, `docker-compose.yml` and
 | `models` | 18 tables across 7 schemas |
 | `schemas` | user, auth, warehouse, zone, operating hours, sku, inventory, address, package, shipment, courier, assignment, common |
 | `seeders` | warehouse, sku, user, inventory, courier, shipment |
-| `core` | config, database, security, tokens, enums, exceptions, access, db_errors, shipment_state_machine |
+| `core` | config, database, security, tokens, exceptions, access, db_errors, shipment_state_machine |
+| `constants` | `enums` (statuses, roles, categories), `formats` (patterns, defaults, naming templates), `database` (schema names) |
+
+### System-defined constants
+
+Enums, patterns and defaults live in `constants/`, not scattered across the files that use them:
+
+- **`constants/enums.py`** — every status, role and category value. Most back a real Postgres
+  enum type; `DB_BACKED_ENUMS` names which ones and where, and
+  `tests/integration/test_enum_constants.py` queries the live database to prove no enum has
+  drifted from its Postgres type in either direction. Without this, the only way to learn what
+  values a column accepts was to read a migration.
+- **`constants/formats.py`** — validation patterns and business defaults that used to be
+  hand-copied literals. The phone-number pattern alone was duplicated across five schema files;
+  `DEFAULT_COUNTRY_CODE`, `DEFAULT_CURRENCY` and `DEFAULT_TIMEZONE` each existed in both a
+  Pydantic default and a SQLAlchemy `server_default`, one edit away from disagreeing with itself.
+- **`constants/database.py`** — the seven schema names, moved out of `models/base.py` so
+  `constants` has no dependency on `models` and the two packages can never form an import cycle.
 
 ### Conventions established
 
@@ -1008,7 +1026,7 @@ will catch a regression tomorrow. See §13.
 
 ## 10b. Automated test suite
 
-701 tests, 92% line coverage, running in about 45 seconds. They replace the manual curl passes
+705 tests, 92% line coverage, running in about 45 seconds. They replace the manual curl passes
 in §10, which proved the system worked once but could not prove it still works after a change.
 
 | Layer | Tests | What it covers | Needs a database |
@@ -1132,7 +1150,7 @@ Deliberate choices worth recording:
 
 Both images built, the stack was brought up, and: all 9 migrations applied from empty, the seeders
 loaded 69 rows, a real login returned a token pair, and the full suite ran **inside** the container
-(701 passed). The production image was confirmed to run as `app`, report `healthy`, and contain no
+(705 passed). The production image was confirmed to run as `app`, report `healthy`, and contain no
 pytest. Kustomize renders 9 resources for each of the three targets, cross-checked so the Service
 selector matches the pod labels, the migration Job uses the same image as the Deployment, and the
 PDB leaves room under the HPA floor.
@@ -1162,6 +1180,7 @@ validate YAML is not a reasonable thing to do unasked.
 | **`constraint_name()` returned the string `"None"`** | `str(getattr(cause, "constraint_name", ""))` turns a missing constraint into the truthy `"None"`, which then failed every lookup and misled any diagnostic reading it | Return a real absence instead |
 | **`/health/ready` always answered 200**, even with Postgres unreachable | It reported `{"status": "degraded"}` in the body while returning success. A readiness probe is read by its *status code*, so Kubernetes would have kept a pod that could not reach its database in the load balancer, collecting errors. Found while writing the probe configuration | Returns 503 when a dependency check fails. Verified in a container by stopping Postgres: liveness stayed 200, readiness went 503, and both recovered by themselves |
 | **The default JWT signing key would deploy silently** | `change-me-in-every-non-local-environment` is in this repository. Carried into a deployed environment, anyone who has read the source could mint a valid admin token, and nothing would have warned about it | `Settings` now refuses to start when `ENVIRONMENT` is staging or production and the key is still the default. The error names the command that generates one |
+| **A `constants/enums.py` importing schema names from `models.base` created a circular import** | `models.base` re-exports schema constants, but importing it triggers `models/__init__.py`, which eagerly imports every model — several of which import from `constants.enums` — before `constants.enums` finishes loading. Failed on the very first test run | Moved the seven schema-name constants to `constants/database.py`, a leaf module with no dependents of its own; `models.base` and `constants.enums` both import from it, and neither imports the other |
 | **Two entries in `CONSTRAINT_MESSAGES` named constraints that do not exist** | `uq_users_email` and `ix_platform_idempotency_keys_key`; the real names are `ix_identity_users_email` and `uq_idempotency_keys_key`. Both would have fallen through to the generic message | Corrected, and a test now asserts every mapped name exists in the database |
 
 ---

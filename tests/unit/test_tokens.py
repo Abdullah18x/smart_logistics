@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 
+from app.constants.enums import TokenType, UserRole
 from app.core.config import settings
-from app.core.enums import TokenType, UserRole
 from app.core.exceptions import AuthenticationError
 from app.core.tokens import create_access_token, decode_access_token, refresh_token_expiry
 

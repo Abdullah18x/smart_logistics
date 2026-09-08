@@ -6,7 +6,7 @@ from datetime import UTC, datetime, time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import WarehouseStatus, WarehouseType, Weekday, ZoneType
+from app.constants.enums import WarehouseStatus, WarehouseType, Weekday, ZoneType
 from app.models.warehouse import Warehouse
 from app.models.warehouse_operating_hours import WarehouseOperatingHours
 from app.models.warehouse_zone import WarehouseZone

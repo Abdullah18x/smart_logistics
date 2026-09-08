@@ -13,7 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.enums import ReservationStatus
+from app.constants.enums import ReservationStatus
 from app.models.base import (
     CATALOG_SCHEMA,
     INVENTORY_SCHEMA,

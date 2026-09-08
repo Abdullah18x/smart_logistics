@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.core.enums import TokenType, UserRole
+from app.constants.enums import TokenType, UserRole
 from app.schemas.user import StrongPassword, UserRead
 
 

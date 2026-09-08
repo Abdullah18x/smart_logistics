@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.enums import UserRole
+from app.constants.enums import UserRole
 from app.core.security import hash_token
 from app.models.refresh_token import RefreshToken
 from app.repositories.base import BaseRepository

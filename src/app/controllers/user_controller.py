@@ -3,8 +3,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from app.constants.enums import UserRole, UserStatus
 from app.controllers.dependencies import CurrentUser, UserServiceDep, require_admin
-from app.core.enums import UserRole, UserStatus
 from app.models.user import User
 from app.schemas.common import MessageResponse, Page, Problem
 from app.schemas.user import (

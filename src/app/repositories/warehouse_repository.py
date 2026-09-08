@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
-from app.core.enums import WarehouseStatus, WarehouseType
+from app.constants.enums import WarehouseStatus, WarehouseType
 from app.models.warehouse import Warehouse
 from app.models.warehouse_operating_hours import WarehouseOperatingHours
 from app.models.warehouse_zone import WarehouseZone

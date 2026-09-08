@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import AssignmentStatus
+from app.constants.enums import AssignmentStatus
 from app.models.base import (
     COURIER_SCHEMA,
     IDENTITY_SCHEMA,

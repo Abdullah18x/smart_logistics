@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.core.enums import ServiceLevel, ShipmentPriority
+from app.constants.enums import ServiceLevel, ShipmentPriority
 from app.schemas.address import AddressCreate
 from app.schemas.inventory import StockAdjustment
 from app.schemas.package import PackageCreate

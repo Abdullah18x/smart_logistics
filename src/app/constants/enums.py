@@ -1,6 +1,32 @@
-"""Enumerations shared across models, schemas and services."""
+"""System-defined statuses, roles and categories.
 
+Every enum below is a closed vocabulary the application enforces. Most of them
+back a real Postgres enum type (see ``pg_enum()`` in ``models.base``), which
+means the database already rejects a value outside this list — but a database
+constraint is not documentation. Without this file, the only way to learn
+what statuses a shipment can hold is to read a migration or run ``\\dT`` in
+``psql``. This is that reference, kept in the language the rest of the
+application is written in, so an editor's "find usages" and "go to
+definition" work on it the same as anything else.
+
+``DB_BACKED_ENUMS`` at the bottom names which of these correspond to a real
+Postgres type, and to which one. ``tests/integration/test_enum_constants.py``
+reads that registry and queries the live database, so a Python enum edited
+without a matching migration — or a migration that touches a type without the
+Python enum being updated — fails the suite instead of surfacing as a
+mismatched dropdown two weeks later.
+"""
+
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+
+from app.constants.database import (
+    COURIER_SCHEMA,
+    IDENTITY_SCHEMA,
+    INVENTORY_SCHEMA,
+    SHIPMENT_SCHEMA,
+    WAREHOUSE_SCHEMA,
+)
 
 
 class UserRole(StrEnum):
@@ -22,7 +48,11 @@ class UserStatus(StrEnum):
 
 
 class TokenType(StrEnum):
-    """Discriminator carried inside issued JWTs."""
+    """Discriminator carried inside issued JWTs.
+
+    Not backed by a Postgres enum — a JWT payload is never stored as a
+    database column, so there is nothing here for a migration to constrain.
+    """
 
     ACCESS = "access"
     REFRESH = "refresh"
@@ -59,7 +89,12 @@ class ZoneType(StrEnum):
 
 
 class Weekday(IntEnum):
-    """ISO-8601 day numbering, Monday = 1."""
+    """ISO-8601 day numbering, Monday = 1.
+
+    Not backed by a Postgres enum — ``warehouse_operating_hours.day_of_week``
+    is a plain ``SmallInteger``, since the value is a number the database can
+    range-check (1 to 7) rather than a fixed vocabulary of labels.
+    """
 
     MONDAY = 1
     TUESDAY = 2
@@ -168,3 +203,38 @@ class AssignmentStatus(StrEnum):
     REASSIGNED = "reassigned"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True)
+class DbBackedEnum:
+    """Where one Python enum's Postgres counterpart lives.
+
+    ``pg_name`` and ``schema`` are exactly the arguments passed to
+    ``pg_enum()`` when the column was declared — this is what lets the check
+    in ``test_enum_constants.py`` find the matching Postgres type.
+    """
+
+    enum_class: type[StrEnum]
+    pg_name: str
+    schema: str
+
+
+#: Every enum with a real Postgres type behind it. Add an entry here whenever
+#: a new ``pg_enum()`` column is declared — the drift test iterates this list,
+#: so an enum left out of it is an enum nothing verifies against the database.
+DB_BACKED_ENUMS: tuple[DbBackedEnum, ...] = (
+    DbBackedEnum(UserRole, "user_role", IDENTITY_SCHEMA),
+    DbBackedEnum(UserStatus, "user_status", IDENTITY_SCHEMA),
+    DbBackedEnum(WarehouseType, "warehouse_type", WAREHOUSE_SCHEMA),
+    DbBackedEnum(WarehouseStatus, "warehouse_status", WAREHOUSE_SCHEMA),
+    DbBackedEnum(ZoneType, "zone_type", WAREHOUSE_SCHEMA),
+    DbBackedEnum(ShipmentStatus, "shipment_status", SHIPMENT_SCHEMA),
+    DbBackedEnum(ServiceLevel, "service_level", SHIPMENT_SCHEMA),
+    DbBackedEnum(ShipmentPriority, "shipment_priority", SHIPMENT_SCHEMA),
+    DbBackedEnum(ReservationStatus, "reservation_status", INVENTORY_SCHEMA),
+    DbBackedEnum(StockMovementType, "stock_movement_type", INVENTORY_SCHEMA),
+    DbBackedEnum(PackageStatus, "package_status", SHIPMENT_SCHEMA),
+    DbBackedEnum(VehicleType, "vehicle_type", COURIER_SCHEMA),
+    DbBackedEnum(CourierAvailability, "courier_availability", COURIER_SCHEMA),
+    DbBackedEnum(AssignmentStatus, "assignment_status", COURIER_SCHEMA),
+)
