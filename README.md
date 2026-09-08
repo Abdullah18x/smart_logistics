@@ -83,7 +83,8 @@ starve request handling. [ADR-001](docs/ARCHITECTURE.md) explains why this rathe
 
 ## Quick start with Docker
 
-The whole stack in one command — no Python, Postgres or Redis needed on your machine:
+The whole stack in one command — no Python, Postgres or Redis needed on your machine. Works
+identically on macOS, Linux and Windows:
 
 ```bash
 make docker-up      # Postgres, Redis, migrations, API on :8000
@@ -103,24 +104,30 @@ To run everything natively instead, carry on below.
 
 ## Prerequisites
 
-*(Only for running without Docker.)*
+*(Only for running natively. The [Docker path](#quick-start-with-docker) needs none of this —
+on Windows especially, it is the shortest route.)*
 
-- Python 3.12 or newer
-- PostgreSQL 16 running locally
-- MongoDB running locally
-- Redis running locally
-- [uv](https://docs.astral.sh/uv/) — `pip install uv`
+| Requirement | Notes |
+|---|---|
+| **Python 3.12+** | Developed against 3.13 |
+| **PostgreSQL 16** | The system of record |
+| **[uv](https://docs.astral.sh/uv/)** | Dependency manager — `pip install uv` |
 
-### macOS setup
+> **Redis and MongoDB are not needed yet.** Both appear in `.env.example` and the Docker stack
+> because Weeks 2–3 use them, but **no application code reads either one today**. Skip them: the
+> API and all 701 tests run on PostgreSQL alone. Install them when Week 2 starts.
+
+---
+
+### macOS
 
 ```bash
-brew install postgresql@16 mongodb-community redis
+brew install postgresql@16
 brew services start postgresql@16
-brew services start mongodb-community
-brew services start redis
 
 # postgresql@16 is keg-only — put its client tools on PATH
 echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc
+exec zsh
 ```
 
 If `brew services start postgresql@16` fails with `Bootstrap failed: 5: Input/output error`,
@@ -132,9 +139,123 @@ initdb --locale=C -E UTF-8 /opt/homebrew/var/postgresql@16
 brew services start postgresql@16
 ```
 
+On an Intel Mac, Homebrew lives under `/usr/local` rather than `/opt/homebrew` — adjust both
+paths accordingly.
+
+---
+
+### Linux — Debian / Ubuntu
+
+Ubuntu 24.04 carries PostgreSQL 16 directly. On 22.04 or older, add the PGDG repository first:
+
+```bash
+sudo apt install -y curl ca-certificates
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+  https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+# One line: a continuation inside the quotes would put stray spaces in the source entry
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+
+sudo apt update
+```
+
+Then:
+
+```bash
+sudo apt install -y python3 python3-venv postgresql-16
+sudo systemctl enable --now postgresql
+
+# a Postgres role matching your Linux user, so `createdb` works without sudo
+sudo -u postgres createuser --superuser "$(whoami)"
+
+# and a password on it — see the note below, this step is easy to miss
+sudo -u postgres psql -c "ALTER ROLE \"$(whoami)\" WITH PASSWORD 'smartlogistics';"
+```
+
+> **Why the password, when `createdb` works without one.** Command-line tools reach Postgres over
+> a Unix socket, where Debian and Ubuntu default to `peer` authentication — your Linux username is
+> the proof. The application connects over TCP to `localhost:5432`, where the default is
+> `scram-sha-256`, which needs a real password. Skip this step and `createdb` succeeds while
+> `alembic upgrade head` fails with `password authentication failed`.
+
+---
+
+### Linux — Fedora / RHEL
+
+Fedora ships PostgreSQL 16 in its own repositories (16.11 on Fedora 41), so no extra repo is needed:
+
+```bash
+sudo dnf install -y python3 postgresql-server postgresql
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+
+sudo -u postgres createuser --superuser "$(whoami)"
+sudo -u postgres psql -c "ALTER ROLE \"$(whoami)\" WITH PASSWORD 'smartlogistics';"
+```
+
+On **RHEL, Rocky or AlmaLinux**, the default stream is usually older. Add the
+[PGDG repository](https://www.postgresql.org/download/linux/redhat/) and install
+`postgresql16-server` instead; the initdb helper is then `/usr/pgsql-16/bin/postgresql-16-setup
+initdb` and the service is `postgresql-16`.
+
+> **If the application cannot connect but `psql` can**, the TCP rules in `pg_hba.conf` are the
+> reason — Red Hat family defaults are stricter than Debian's. Set them to password auth:
+>
+> ```bash
+> sudo sed -i -E 's/^(host.*127\.0\.0\.1\/32\s+)\w+$/\1scram-sha-256/' /var/lib/pgsql/data/pg_hba.conf
+> sudo systemctl restart postgresql
+> ```
+
+---
+
+### Windows
+
+Three options, easiest first.
+
+**1. Docker Desktop — recommended.** Nothing else to install, and it is the same stack that
+deploys. Install [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/), then:
+
+```powershell
+docker compose up -d --build
+docker compose --profile seed up seed
+```
+
+**2. WSL2** — a real Linux environment, and `make` works. In PowerShell:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Then open Ubuntu and follow the **Debian / Ubuntu** instructions above. Keep the repository inside
+the WSL filesystem (`~/smart_logistics`, not `/mnt/c/...`) — file watching for `--reload` is slow
+and unreliable across the Windows/Linux boundary.
+
+**3. Native Windows.** Works, with two caveats noted below.
+
+```powershell
+winget install Python.Python.3.13
+winget install PostgreSQL.PostgreSQL.16
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Add PostgreSQL's client tools to `PATH` (adjust if you installed elsewhere):
+
+```powershell
+$env:Path += ";C:\Program Files\PostgreSQL\16\bin"
+```
+
+> **Two caveats on native Windows.**
+> 1. Scripts live in `.venv\Scripts\`, not `.venv/bin/` — every command in this README that
+>    starts `.venv/bin/` becomes `.venv\Scripts\`.
+> 2. **`make` targets do not work.** The `Makefile` assumes a Unix shell and `.venv/bin/` paths.
+>    Run the underlying commands directly, or use WSL2 or Docker where `make` works normally.
+
 ---
 
 ## Setup
+
+Steps 1–4 are identical everywhere; only the virtualenv path differs at the end.
 
 ```bash
 # 1. clone and enter the project
@@ -149,18 +270,49 @@ uv venv
 uv pip install -e ".[dev]"
 
 # 4. configure the environment
-cp .env.example .env
-#    then edit DATABASE_URL and MONGO_URI to match your machine
-
-# 5. create the tables
-.venv/bin/alembic upgrade head
-
-# 6. load development data
-.venv/bin/python -m app.seeders.runner
+cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
+#    then set DATABASE_URL to match your machine
 ```
 
-Activate the environment with `source .venv/bin/activate` to drop the `.venv/bin/` prefix
-from every command below.
+**macOS / Linux**
+
+```bash
+.venv/bin/alembic upgrade head          # create the tables
+.venv/bin/python -m app.seeders.runner  # load development data
+```
+
+**Windows (PowerShell)**
+
+```powershell
+.venv\Scripts\alembic upgrade head
+.venv\Scripts\python -m app.seeders.runner
+```
+
+Activate the environment to drop the prefix from every command below:
+
+| Platform | Command |
+|---|---|
+| macOS / Linux | `source .venv/bin/activate` |
+| Windows PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows CMD | `.venv\Scripts\activate.bat` |
+
+If PowerShell refuses the activation script, allow signed local scripts once:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+**`DATABASE_URL`** follows the same shape everywhere — only the credentials change:
+
+```
+postgresql+asyncpg://USER:PASSWORD@localhost:5432/smartlogistics
+```
+
+| Platform | Typical value |
+|---|---|
+| **macOS** (Homebrew) | `postgresql+asyncpg://YOUR_USERNAME@localhost:5432/smartlogistics` — Homebrew trusts local connections, so no password is needed |
+| **Linux** | `postgresql+asyncpg://YOUR_USERNAME:smartlogistics@localhost:5432/smartlogistics` — the password you set with `ALTER ROLE` above |
+| **Windows** | `postgresql+asyncpg://postgres:YOUR_PASSWORD@localhost:5432/smartlogistics` — the password the installer asked for |
+
+Verified end to end on Ubuntu 24.04: these steps produce a working database, seeded data, and all
+701 tests passing.
 
 ---
 
@@ -170,12 +322,15 @@ from every command below.
 uvicorn app.main:app --reload --port 8000
 ```
 
-| URL | Purpose |
-|---|---|
-| http://localhost:8000/docs | Swagger UI — click **Authorize** to paste an access token |
-| http://localhost:8000/redoc | ReDoc |
-| http://localhost:8000/health | Liveness |
-| http://localhost:8000/health/ready | Readiness — checks PostgreSQL |
+Confirm it came up:
+
+```bash
+curl localhost:8000/health          # {"status":"ok", ...}
+curl localhost:8000/health/ready    # 503 if PostgreSQL is unreachable
+```
+
+Interactive documentation is at **[/docs](http://localhost:8000/docs)** — see
+[API reference](#api-reference) below.
 
 ### Trying it out
 
@@ -187,25 +342,6 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 
 Use the returned `access_token` as `Authorization: Bearer <token>`.
 
-### Endpoints
-
-| Method | Path | Access |
-|---|---|---|
-| POST | `/api/v1/auth/login` | public |
-| POST | `/api/v1/auth/refresh` | public (rotates the token) |
-| POST | `/api/v1/auth/logout` | authenticated |
-| GET | `/api/v1/auth/sessions` | authenticated |
-| GET | `/api/v1/auth/me` | authenticated |
-| POST | `/api/v1/users` | admin |
-| GET | `/api/v1/users` | admin — filter by `role`, `status`, `search` |
-| GET | `/api/v1/users/{id}` | admin |
-| PATCH | `/api/v1/users/me` | authenticated |
-| POST | `/api/v1/users/me/password` | authenticated |
-| PATCH | `/api/v1/users/{id}` | admin |
-| PATCH | `/api/v1/users/{id}/role` | admin |
-| PATCH | `/api/v1/users/{id}/status` | admin |
-| DELETE | `/api/v1/users/{id}` | admin (soft delete) |
-
 **Security behaviour**
 
 - Access tokens last 15 minutes; refresh tokens 14 days and **rotate on every use**
@@ -213,6 +349,41 @@ Use the returned `access_token` as `Authorization: Bearer <token>`.
 - 5 failed logins lock the account for 15 minutes
 - Changing a password, or suspending an account, revokes all its sessions
 - Admins cannot change their own role or status, or delete themselves
+
+---
+
+## API reference
+
+**42 endpoints** across Authentication, Users, Warehouses, Shipments, Inventory and Health.
+They are not listed here on purpose — a hand-written table drifts the moment a route changes.
+Every reference below is generated from the running application, so none of them can:
+
+| Where | Best for |
+|---|---|
+| **[/docs](http://localhost:8000/docs)** | Reading and calling endpoints in the browser. Click **Authorize** to paste a token |
+| **[/redoc](http://localhost:8000/redoc)** | A cleaner read-only reference |
+| **[docs/curl/index.html](docs/curl/index.html)** | Browsing offline or on GitHub — every endpoint with a copy-ready curl, live variable substitution, and a copy button that pastes into Postman's **Import → Raw text** |
+| **[docs/curl/](docs/curl/)** | Postman collection + environment, per-tag shell scripts, and the raw OpenAPI spec |
+
+Regenerate all of it after any route change:
+
+```bash
+make api
+```
+
+**Postman:** import the collection and environment from `docs/curl/`, select
+**SmartLogistics — Local**, and run the login request — it stores the tokens automatically, so
+every other request is authorised.
+
+**Shell** (bash or zsh — on Windows use WSL2, Git Bash, or the HTML page above):
+
+```bash
+source docs/curl/env.sh     # logs in, exports BASE_URL and ACCESS_TOKEN
+curl -s "$BASE_URL/api/v1/shipments" -H "Authorization: Bearer $ACCESS_TOKEN" | jq
+```
+
+Who may call what is documented in [phase_1.md §7b](docs/phase_1.md); the roles themselves are in
+[ARCHITECTURE.md ADR-009](docs/ARCHITECTURE.md).
 
 ---
 
@@ -286,12 +457,29 @@ and register the schema in `VERSIONED_SCHEMAS` in `migrations/env.py`.
 | `make k8s-deploy CLOUD=aws` | Apply them (`CLOUD=azure` for AKS) |
 | `make k8s-migrate CLOUD=aws` | Run the migration Job and wait for it |
 
+### On native Windows
+
+`make` is not available and the `Makefile` assumes `.venv/bin/` paths, so run the underlying
+commands directly. The `docker-*` targets are the exception — `docker compose` works natively.
+
+| Instead of | Run (PowerShell) |
+|---|---|
+| `make run` | `.venv\Scripts\uvicorn app.main:app --reload --port 8000` |
+| `make migrate` | `.venv\Scripts\alembic upgrade head` |
+| `make seed` | `.venv\Scripts\python -m app.seeders.runner` |
+| `make test` | `.venv\Scripts\pytest` |
+| `make api` | `.venv\Scripts\python scripts/generate_api_collection.py` |
+| `make check` | `.venv\Scripts\ruff check src tests scripts` |
+| `make docker-up` | `docker compose up -d --build` |
+
+WSL2 avoids all of this — `make` works there exactly as on Linux.
+
 ## Automated tests
 
 701 tests across three layers, at 92% line coverage.
 
 ```bash
-make test
+make test              # or: .venv/bin/pytest   —   Windows: .venv\Scripts\pytest
 ```
 
 They run against **real PostgreSQL**, not SQLite — the code depends on generated columns, native
@@ -311,34 +499,6 @@ one another. The concurrency tests in `tests/integration/test_concurrency.py` ar
 row locking only exists between real connections — and are marked `slow`.
 
 See [phase_1.md §10b](docs/phase_1.md) for what the suite covers and why.
-
-## Manual testing — Postman / curl
-
-The [`docs/curl/`](docs/curl/) folder is generated from the live routes, so it never drifts:
-
-```bash
-make api
-```
-
-**Browser:** open [`docs/curl/index.html`](docs/curl/index.html) — every endpoint with a
-copy-ready curl command, live variable substitution for base URL, token and path parameters,
-and a copy button that pastes straight into Postman's **Import → Raw text**.
-
-**Postman:** import `docs/curl/SmartLogistics.postman_collection.json` and
-`docs/curl/SmartLogistics.postman_environment.json`, select the **SmartLogistics — Local**
-environment, then run the login request — it stores the tokens automatically, so every
-other request is authorised.
-
-**Shell:**
-
-```bash
-source docs/curl/env.sh     # logs in, exports BASE_URL and ACCESS_TOKEN
-curl -s "$BASE_URL/api/v1/users" -H "Authorization: Bearer $ACCESS_TOKEN" | jq
-```
-
-See [docs/curl/README.md](docs/curl/README.md) for details.
-
----
 
 ## Project structure
 
@@ -378,11 +538,12 @@ scripts/            API collection generator
 
 | Document | Contents |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data and event flows, 16 ADRs, NFR targets |
-| [docs/database.md](docs/database.md) | Every table, column and constraint, with class diagrams |
-| [docs/phase_1.md](docs/phase_1.md) | Week 1 build log — what exists, verification results, what remains |
-| [deploy/README.md](deploy/README.md) | Running in Docker, and deploying to EKS or AKS |
-| [docs/projectDocs/](docs/projectDocs/) | Original assignment briefs (Guidelines, Part A, Part B) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **Start here.** System design, module boundaries, data and event flows, 16 ADRs, requirement traceability (§1.1) and NFR targets |
+| [docs/database.md](docs/database.md) | Every schema, table, column and constraint, what each table is for, plus two class diagrams |
+| [docs/phase_1.md](docs/phase_1.md) | Week 1 build log — what was built and why, access-control model, stock contention, defects found and fixed, what remains |
+| [deploy/README.md](deploy/README.md) | The image, the Compose stack, and deploying to EKS or AKS |
+| [docs/curl/](docs/curl/) | Generated API collection — OpenAPI spec, Postman files, curl scripts, and the browsable HTML page |
+| [docs/projectDocs/](docs/projectDocs/) | The original assignment briefs (Guidelines, Part A, Part B) |
 
 ---
 
