@@ -1,0 +1,31 @@
+# Local development overrides.
+#
+# Compose loads this automatically on top of docker-compose.yml, so a plain
+# `docker compose up` gives you live reload. Delete it, rename it, or run
+# `docker compose -f docker-compose.yml up` to get the production-shaped image
+# exactly as it is deployed.
+
+services:
+  api:
+    build:
+      target: dev
+    image: smartlogistics-api:${IMAGE_TAG:-local}-dev
+    environment:
+      DEBUG: "true"
+      DATABASE_ECHO: ${DATABASE_ECHO:-false}
+    volumes:
+      # Source only. The virtualenv stays inside the image, so a host .venv
+      # built for macOS can never shadow the Linux one.
+      - ./src:/app/src:ro
+      - ./migrations:/app/migrations:ro
+      - ./alembic.ini:/app/alembic.ini:ro
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app/src

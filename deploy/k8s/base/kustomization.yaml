@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: smartlogistics
+
+# secret.example.yaml is deliberately absent: it is a template, and applying it
+# would push placeholder credentials to a cluster. Create the real Secret out of
+# band — see that file, or deploy/k8s/README.md.
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - migration-job.yaml
+
+# `labels` rather than the deprecated `commonLabels`, and with includeSelectors
+# off: a Deployment's selector is immutable, so folding new labels into it would
+# make the next apply fail against an existing release.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: smartlogistics
+      app.kubernetes.io/managed-by: kustomize

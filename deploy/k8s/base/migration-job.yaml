@@ -1,0 +1,75 @@
+# Schema migrations, as a Job rather than as part of pod startup.
+#
+# Replicas must not migrate. Three pods starting together would each run
+# `alembic upgrade head` against the same database, and concurrent DDL under one
+# version table is how you get a deadlock or a half-applied revision. One Job
+# runs once, and the rollout follows it.
+#
+#   kubectl apply -k deploy/k8s/overlays/aws
+#   kubectl -n smartlogistics wait --for=condition=complete \
+#           job/smartlogistics-migrate --timeout=300s
+#
+# A Job's pod template is immutable, so redeploying needs the old one removed
+# first — `make k8s-migrate` does the delete-then-apply. At scale this belongs in
+# a Helm pre-upgrade hook or an Argo CD PreSync hook, which handle it for you.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smartlogistics-migrate
+  labels:
+    app.kubernetes.io/name: smartlogistics-api
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: smartlogistics
+spec:
+  backoffLimit: 3
+  # Clean up an hour after finishing, so a redeploy usually needs no delete.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smartlogistics-api
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: smartlogistics-api
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          # Overlays replace this. It must be the same image as the Deployment,
+          # or the schema will not match the code that is about to run.
+          image: smartlogistics-api:local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: smartlogistics-api-config
+            - secretRef:
+                name: smartlogistics-api-secrets
+          env:
+            - name: WAIT_FOR_DB
+              value: "true"
+            - name: WAIT_TIMEOUT
+              value: "120"
+          command: ["alembic", "upgrade", "head"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

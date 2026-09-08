@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: smartlogistics-api
+  labels:
+    app.kubernetes.io/name: smartlogistics-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: smartlogistics
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: smartlogistics-api

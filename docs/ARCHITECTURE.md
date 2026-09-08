@@ -10,7 +10,7 @@
 
 ## Table of Contents
 
-1. [Purpose and Scope](#1-purpose-and-scope)
+1. [Purpose and Scope](#1-purpose-and-scope) · [1.1 Requirement coverage](#11-requirement-coverage)
 2. [Architectural Drivers](#2-architectural-drivers)
 3. [System Context](#3-system-context)
 4. [Deployment Shape and Process Topology](#4-deployment-shape-and-process-topology)
@@ -35,11 +35,45 @@
 
 ## 1. Purpose and Scope
 
-This document defines the technical architecture of the SmartLogistics backend. It is the reference for module boundaries, data ownership, workflow and event design, consistency guarantees, and observability. It is intended to be read alongside the PRD, which owns requirements and traceability; this document owns *how*, not *what*.
+This document defines the technical architecture of the SmartLogistics backend. It is the reference for module boundaries, data ownership, workflow and event design, consistency guarantees, and observability.
+
+It also carries the requirement traceability the brief asks for. No separate PRD was written: a second document restating the brief would drift from this one within a week, so the mapping from each stated requirement to the design that answers it lives in [§1.1](#11-requirement-coverage) below, non-functional targets in [§18](#18-non-functional-targets), and the delivery timeline in [§20](#20-delivery-roadmap-mapping).
 
 **In scope:** shipment lifecycle, warehouse and inventory operations, dispatch orchestration, courier assignment, tracking and delivery, returns, notifications, analytics, and the GenAI assistant layer.
 
 **Out of scope:** frontend applications, real carrier/EDI integrations, real payment processing, production infrastructure (cloud accounts, Terraform, managed Kafka), and geospatial route optimisation against live map data. External providers are represented by mock adapters behind stable interfaces (see [ADR-014](#adr-014-mock-external-provider-adapters)).
+
+### 1.1 Requirement coverage
+
+Every functional requirement in *SmartLogistics — Part A*, mapped to the design that answers it and
+to its status at the end of Week 1. Status is what is **built and verified**, not what is designed —
+the design for all of it is in this document.
+
+| # | Requirement (Part A) | Where | Status |
+|---|---|---|---|
+| **1** | Shipment, package, address and metadata CRUD | [§5](#5-module-architecture), [§7](#7-shipment-lifecycle-and-state-machine) | ✅ Built — 42 endpoints |
+| | User registration with four roles | [§12](#12-api-and-security-architecture), [ADR-009](#adr-009-jwt-with-role-gate-plus-row-level-scoping) | ✅ Built — role gate plus row-level scoping |
+| | Courier profile management and availability | [§5](#5-module-architecture) | 🟡 Data model and seed data ready; endpoints are Week 2 |
+| | Shipment history and audit trail | [ADR-002](#adr-002-postgres-as-system-of-record-mongodb-for-event-streams) | 🟡 Lifecycle timestamps and the stock ledger are persisted; the Mongo audit stream is Week 3 |
+| **2** | Dispatch workflow — validate, reserve, label, assign, track, mark dispatched | [§8](#8-workflow-architecture-temporal) | 🟡 State machine, stock reservation and idempotency built; Temporal saga is Week 2 |
+| | Partial failures must not corrupt shipment state | [D1](#2-architectural-drivers), [§11](#11-consistency-and-idempotency-model) | ✅ Transitions are validated in one place and applied in the same transaction as their stock effect |
+| **3** | Delivery workflow — pickup, updates, attempts, confirmation | [§7](#7-shipment-lifecycle-and-state-machine) | 🟡 All custody transitions and attempt counting built; orchestration is Week 2 |
+| | Idempotent retries and duplicate prevention | [ADR-006](#adr-006-layered-idempotency), [§11](#11-consistency-and-idempotency-model) | ✅ `Idempotency-Key` with request-hash comparison, verified under concurrency |
+| **4** | Event-driven behaviours, traceable and recoverable, no double-processing | [§9](#9-event-architecture-kafka), [ADR-003](#adr-003-transactional-outbox-for-event-publishing) | 🔴 Week 3 |
+| **5** | Analytics metrics — nine listed | [§10](#10-async-responsibility-boundaries) | 🔴 Week 3 |
+| **6** | Observability, monitoring, failure diagnosis | [§13](#13-observability-architecture), [ADR-010](#adr-010-opentelemetry-first-with-async-context-propagation) | 🟡 Liveness and readiness probes built; tracing and dashboards are Week 3 |
+
+**Tech stack**, as mandated by the brief:
+
+| Layer | Required | Status |
+|---|---|---|
+| Backend | Python, FastAPI, PostgreSQL, a NoSQL store, Redis | ✅ Python 3.13, FastAPI, PostgreSQL 16. 🟡 MongoDB and Redis are configured and running but no code reads them yet |
+| Async | Celery + RabbitMQ, Kafka + Schema Registry, Temporal | 🔴 Weeks 2–3, designed in [§8](#8-workflow-architecture-temporal)–[§10](#10-async-responsibility-boundaries) |
+| Observability | Prometheus, Grafana, Jaeger, OpenTelemetry | 🔴 Week 3, designed in [§13](#13-observability-architecture) |
+| DevOps | Docker, Docker Compose | ✅ Multi-stage image and Compose stack, plus Kubernetes manifests beyond the brief — see [deploy/README.md](../deploy/README.md) |
+
+Nothing in the mandated stack has been substituted. The items marked 🔴 are scheduled, not skipped;
+[§20](#20-delivery-roadmap-mapping) says which week each lands in.
 
 ---
 
@@ -137,11 +171,13 @@ SmartLogistics is a **modular monolith with process-type separation**: one codeb
 
 Module boundaries are enforced so that any module can later become a service without a rewrite:
 
-- one **Postgres schema per module**, with **no cross-schema foreign keys** — future split lines are already drawn in the data ([ADR-008](#adr-008-schema-per-module-in-a-single-database))
-- **no cross-module imports** except through a module's published service interface (`app/modules/<name>/service.py`), enforced by an `import-linter` contract in CI
+- one **Postgres schema per module**, so the split lines are already drawn in the data ([ADR-008](#adr-008-schema-per-module-in-a-single-database))
+- **no cross-module imports** except through a module's published service interface
 - non-query cross-module communication already flows through domain events rather than direct calls
 
-Extraction therefore reduces to moving a package and replacing an in-process service call with an event or an HTTP client.
+**Amended 2026-09-07:** cross-schema foreign keys *are* now used. The original rule forbade them to keep extraction free of constraint drops; in practice it left 15 references unprotected, with integrity resting on the service layer remembering to check. ADR-008 records the reversal. Extraction now needs a `DROP CONSTRAINT` first — mechanical, and a fair price for integrity that cannot be bypassed.
+
+Extraction therefore reduces to moving a package, dropping the foreign keys that cross the new boundary, and replacing an in-process service call with an event or an HTTP client.
 
 ---
 
@@ -211,9 +247,10 @@ Everything transactional and relational. All state that a business decision depe
 |---|---|
 | `identity` | `users`, `refresh_tokens` |
 | `catalog` | `skus` |
-| `warehouses` | `warehouses` |
+| `warehouses` | `warehouses`, `warehouse_zones`, `warehouse_operating_hours` |
 | `inventory` | `inventory_items` (unique on `warehouse_id, sku_id`; `on_hand_qty`, `reserved_qty`, `version`), `inventory_reservations` (`shipment_id`, `status`, `expires_at`) |
 | `shipments` | `shipments`, `shipment_items`, `packages`, `addresses` |
+
 | `couriers` | `couriers`, `courier_assignments` |
 | `tracking` | `delivery_attempts` (relational projection; full event history lives in Mongo) |
 | `returns` | `returns` |
@@ -572,6 +609,11 @@ The split matters: *"why is warehouse throughput low this week?"* is a retrieval
 
 One `docker-compose.yml` with the full stack. Application processes share a single image.
 
+> **Status (Week 1).** Five of the services below exist today — `api`, `postgres`, `redis`, plus a
+> one-shot `migrate` service and a `test` profile. The rest arrive in the week their concern is
+> built. What runs now, and how it deploys to Kubernetes on EKS or AKS, is documented in
+> [deploy/README.md](../deploy/README.md).
+
 | Service | Image | Port | Notes |
 |---|---|---|---|
 | `api` | app | 8000 | FastAPI |
@@ -601,37 +643,53 @@ Compose profiles (`core`, `events`, `observability`, `ai`) allow a subset to be 
 
 ## 16. Repository Layout
 
+The codebase is **layer-first**: one folder per architectural layer, one file per entity inside it. Folders are introduced in the week their concern is built, so the tree always reflects what actually exists.
+
+### 16.1 Current (Week 1)
+
 ```
 smart-logistics-be/
-├── docs/
-│   ├── PRD.md
-│   ├── ARCHITECTURE.md
-│   ├── adr/
-│   └── diagrams/
+├── Dockerfile                multi-stage; runtime target is non-root
+├── docker-compose.yml        Postgres, Redis, migrate, api (+ seed/test profiles)
+├── docker-compose.override.yml   local reload, applied automatically
+├── docs/                     architecture, database reference, build log, ADRs, curl collection
 ├── src/app/
-│   ├── main.py
-│   ├── api/v1/                    # router aggregation
-│   ├── platform/                  # config, db, mongo, redis, kafka, outbox,
-│   │                              # idempotency, auth, telemetry, errors
-│   ├── modules/
-│   │   ├── identity/  catalog/  warehouses/  inventory/
-│   │   ├── shipments/ couriers/  dispatch/    tracking/
-│   │   └── returns/   notifications/  analytics/
-│   │       └── (router, service, repository, models, schemas, events)
-│   ├── workflows/                 # Temporal: workflows/, activities/, worker.py
-│   ├── consumers/                 # Kafka consumers + DLQ handling
-│   └── workers/                   # Celery app, tasks, schedules
-├── src/ai_service/                # Part B: graph, tools, retrieval, api
-├── migrations/                    # Alembic
-├── tests/
-│   ├── unit/  integration/  e2e/
+│   ├── controllers/          routes, dependencies, RBAC gates
+│   ├── services/             business logic, transaction boundaries
+│   ├── repositories/         database access
+│   ├── models/               SQLAlchemy models, one file per entity
+│   ├── schemas/              Pydantic request / response contracts
+│   ├── seeders/              development data, one seeder per entity
+│   ├── core/                 config, database, security, enums, exceptions
+│   └── main.py               application factory
+├── migrations/               Alembic
+├── tests/                    unit, integration, e2e
 ├── deploy/
-│   ├── docker/  grafana/  prometheus/  otel/
-├── docker-compose.yml
-├── pyproject.toml  uv.lock  Makefile  .env.example
+│   ├── docker/               container entrypoint
+│   └── k8s/                  base manifests + aws / azure overlays
+└── scripts/                  API collection generator
 ```
 
-**Tooling:** `uv` for dependency management, `Ruff` for lint and format, `SQLAlchemy 2.0` async with `Alembic`, `pytest` with `testcontainers` for integration tests, `import-linter` for module-boundary enforcement, all wired into pre-commit and CI.
+### 16.2 Added later
+
+| Folder | Week | Purpose |
+|---|---|---|
+| `src/app/workflows/` | 2 | Temporal workflows, activities, worker |
+| `src/app/events/` | 3 | Event envelope, Avro schemas, producers |
+| `src/app/consumers/` | 3 | Kafka consumer runners, dedupe, DLQ |
+| `src/app/workers/` | 3 | Celery app, tasks, schedules |
+| `deploy/prometheus/`, `deploy/grafana/`, `deploy/otel/` | 3 | Observability configuration |
+| `src/ai_service/` | 4–5 | Part B: retrieval, indexing, LangGraph agent, tools |
+
+**Conventions**
+
+- One file per entity, named after the singular table name — `models/refresh_token.py`, `services/user_service.py`
+- `models/__init__.py` is a registry: every model is imported there so SQLAlchemy can resolve string relationships and Alembic can see full metadata
+- Cross-file relationships use `TYPE_CHECKING` imports plus string targets to avoid import cycles
+
+**Tooling in use:** `uv` for dependencies, `Ruff` for lint and format, `SQLAlchemy 2.0` async with `Alembic`, `pytest` against a real PostgreSQL instance the suite builds and migrates itself, Docker and Kustomize for packaging.
+
+**Not yet adopted:** `import-linter` for module-boundary enforcement, pre-commit hooks, and a CI pipeline to run any of it. All three are listed as outstanding in [phase_1.md §13](phase_1.md).
 
 ---
 
@@ -703,9 +761,19 @@ smart-logistics-be/
 
 ### ADR-008: Schema-per-module in a single database
 
-**Decision.** Each module owns a Postgres schema; no cross-schema foreign keys. Cross-module references are by ID, validated in the service layer.
+**Decision.** Each module owns a Postgres schema.
 
-**Consequences.** Split lines are drawn in the data; ownership is unambiguous. Cost: some referential integrity moves from the database into services — an intentional trade for extractability.
+**Amended 2026-09-07 — cross-schema foreign keys are now used.** The original rule forbade them so a module could be extracted without dropping constraints. In practice it left 15 references unprotected, with integrity depending on the service layer remembering to check — and a check-then-act is a race regardless.
+
+Foreign keys are declared wherever the relationship is permanent, with the delete rule chosen per relationship:
+
+| Rule | Used for | Rationale |
+|---|---|---|
+| `RESTRICT` | stock → SKU / warehouse, shipment → warehouse / courier, shipment item → SKU | The parent must not vanish while records depend on it |
+| `SET NULL` | shipment → creator, ledger → actor, courier → user account | The record outlives the account behind it |
+| `CASCADE` | zones, hours, shipment items, packages, refresh tokens, warehouse assignments | Children have no meaning without their parent |
+
+**Consequences.** The database rejects orphans outright, and violations are translated into API errors by `core/db_errors.py` rather than pre-empted by hand-written checks. Extraction now requires dropping constraints first — a short, mechanical step rather than a rewrite, a fair price for integrity that cannot be bypassed.
 
 ### ADR-009: JWT with role gate plus row-level scoping
 
@@ -747,7 +815,83 @@ smart-logistics-be/
 
 **Consequences.** Full workflows are demonstrable end-to-end without third-party accounts; a real provider is a single adapter implementation away. Route preparation is deterministic in Part A and becomes genuinely intelligent in Part B.
 
+### ADR-015: Live tracking and map provider integration
+
+**Context.** Couriers must navigate to warehouses and delivery addresses, and operations must
+see where shipments are in real time. A map provider (Google Maps, Mapbox, or an open stack of
+OSM + OSRM + Nominatim) supplies geocoding, routing and distance data. Position data arrives at
+a far higher rate than any other write in the system.
+
+**Decision.**
+
+1. **Coordinates are plain `latitude`/`longitude` columns**, not PostGIS geometry, until a
+   query actually needs spatial indexing. Adding PostGIS later is an additive migration.
+2. **Two points per facility.** `latitude`/`longitude` is the centroid, used for distance and
+   routing maths; `entrance_latitude`/`entrance_longitude` is the gate a driver is routed to.
+   On a large industrial site these differ by hundreds of metres — the difference between
+   finding the dock and circling the perimeter.
+3. **`map_place_id` holds a provider-stable reference** (Google `place_id`, OSM node, Mapbox
+   feature id) so provider calls survive address typos and reformatting.
+4. **`geofence_radius_m` per facility.** Arrival and departure are *derived* by testing courier
+   pings against this circle, not self-reported by the driver — self-reported arrival is the
+   most commonly falsified event in delivery operations.
+5. **Position pings live in MongoDB, never Postgres** (extends ADR-002). A courier pinging every
+   10 seconds generates ~3,000 rows per shift; multiplied across a fleet this would dominate
+   the OLTP tables. The `courier_location_pings` collection carries GeoJSON `Point` geometry, a
+   `2dsphere` index, and a TTL index that expires raw pings after 30 days. Only the **last known
+   position** is denormalised onto the courier row in Postgres, for "where is my courier now".
+6. **The provider sits behind an adapter** (`MapProvider`) exposing `geocode`,
+   `reverse_geocode`, `distance_matrix` and `directions`. A mock implementation returns
+   deterministic results from seeded coordinates, so workflows are demonstrable without an API
+   key or per-call billing, and the real provider is one implementation away (ADR-014).
+7. **Geocoding is asynchronous.** Creating a warehouse with an address but no coordinates
+   enqueues a Celery geocoding job rather than blocking the request on a third-party call.
+   `geocoded_at` records freshness so stale coordinates can be refreshed in bulk.
+
+**Consequences.** Live tracking, geofenced arrival detection and ETA calculation are all
+supported by the schema from day one, without a spatial database or a paid API in development.
+Costs: proximity queries are Python-side or SQL haversine until PostGIS is introduced, and the
+denormalised last-known position must be kept in step with the ping stream.
+
+**Alternatives rejected.** *PostGIS from the start* — a heavier local image and an extension to
+manage, for queries not yet written. *Position pings in Postgres* — unbounded growth on the hot
+path, the exact failure ADR-002 exists to prevent. *Calling the provider inline during dispatch*
+— puts a third-party latency spike and rate limit directly on the critical path.
+
 ---
+
+### ADR-016: Soft deletion and archival
+
+**Context.** With foreign keys in place, a hard delete either fails or cascades further than
+intended. Historical shipments, audit trails and ledger entries must keep resolving to the rows
+they reference.
+
+**Decision.**
+
+1. **Nothing user-facing is hard-deleted.** `SoftDeleteMixin` adds `deleted_at` and `deleted_by`
+   to users, warehouses, zones, SKUs, couriers and shipments. `DELETE` endpoints set those and
+   return 204; repositories exclude soft-deleted rows by default; `POST /{id}/restore` undoes it.
+2. **Deletion also flips domain state** where one exists — a deleted warehouse becomes
+   `inactive`, a deleted user `deactivated` with every session revoked — so the record stops
+   participating in business logic immediately, not merely in listings.
+3. **Partial indexes, not archive tables, for now.** Every hot query filters
+   `deleted_at IS NULL`, so an index carrying that predicate stays the size of the live data
+   regardless of how much history accumulates. Six such indexes exist, declared on the models so
+   `alembic check` keeps model and database in agreement.
+4. **Archival is a later, additive step.** When volume justifies it, deleted rows move to an
+   `archive` schema mirroring the live tables, driven by a scheduled Celery job with a retention
+   window. Nothing in the application layer changes when that happens — the archive is written
+   and read only by the job and by analysts.
+
+**Consequences.** Deletes are reversible, referential integrity holds, and table growth is
+handled by index scope rather than by moving data. Costs: every query path must respect the
+soft-delete filter, centralised in `BaseRepository.active_only`; and unique constraints still
+count deleted rows, so a soft-deleted warehouse keeps its code reserved. That is deliberate —
+restoring it must not collide with a replacement.
+
+**Alternatives rejected.** *Hard delete with `ON DELETE CASCADE`* — silently destroys history.
+*Archive tables from day one* — a second schema to migrate in lockstep, for data volumes that do
+not yet exist.
 
 ## 18. Non-Functional Targets
 
@@ -811,4 +955,4 @@ smart-logistics-be/
 | **4** | Indexing consumer, document composition, embedding pipeline, vector store, filtered semantic retrieval |
 | **5** | LangGraph assistant, tool layer, SSE streaming, delay insight and courier recommendation flows, AI observability dashboard |
 
-Feature-level traceability to requirements lives in the PRD.
+Feature-level traceability to the brief's stated requirements is in [§1.1](#11-requirement-coverage).

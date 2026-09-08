@@ -1,0 +1,155 @@
+# SmartLogistics — local stack.
+#
+#   docker compose up -d --build      Postgres, Redis, migrations, API on :8000
+#   docker compose --profile seed up seed     load development data
+#   docker compose --profile test run --rm test    run the suite in a container
+#   docker compose down -v            stop and delete the data volumes
+#
+# Postgres is published on host port 5433 and Redis on 6380, so the stack runs
+# alongside a Postgres and Redis you already have on 5432/6379 rather than
+# fighting them for the port. Override with POSTGRES_HOST_PORT / REDIS_HOST_PORT.
+#
+# Every value below has a working default, so `docker compose up` needs no .env.
+# Anything you do put in .env overrides the defaults through ${VAR:-default}.
+#
+# Note the database host is `postgres`, not `localhost` — inside the network the
+# service name is the hostname. A .env written for running the API on the host
+# will have DATABASE_URL pointing at localhost, which is why the URL is composed
+# here from its parts rather than passed through.
+
+x-postgres-env: &postgres-env
+  POSTGRES_USER: ${POSTGRES_USER:-smartlogistics}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartlogistics}
+  POSTGRES_DB: ${POSTGRES_DB:-smartlogistics}
+
+x-app-env: &app-env
+  APP_NAME: ${APP_NAME:-SmartLogistics}
+  ENVIRONMENT: ${ENVIRONMENT:-local}
+  DEBUG: ${DEBUG:-true}
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-smartlogistics}:${POSTGRES_PASSWORD:-smartlogistics}@postgres:5432/${POSTGRES_DB:-smartlogistics}
+  DATABASE_ECHO: ${DATABASE_ECHO:-false}
+  DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+  DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-20}
+  REDIS_URL: redis://redis:6379/0
+  # Optional: SmartLogistics does not read Mongo yet, it is here for Phase 2.
+  MONGO_URI: ${MONGO_URI:-}
+  MONGO_DB: ${MONGO_DB:-smartlogistics}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-every-non-local-environment}
+  SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD:-SmartLogistics!2026}
+
+x-app-build: &app-build
+  build:
+    context: .
+    target: ${BUILD_TARGET:-runtime}
+    args:
+      PYTHON_VERSION: ${PYTHON_VERSION:-3.13}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      <<: *postgres-env
+      # Faster startup; this database is disposable.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      # Published on 5433, not 5432, so it cannot collide with a Postgres already
+      # running on the host — which is the usual case on a development machine.
+      # Inside the compose network the API still reaches it on 5432 as `postgres`.
+      #   psql -h localhost -p 5433 -U smartlogistics smartlogistics
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Named user and database: the default `pg_isready` reports ready slightly
+      # before this database actually accepts connections.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartlogistics} -d ${POSTGRES_DB:-smartlogistics}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
+    ports:
+      # 6380 for the same reason: a local Redis usually holds 6379.
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # One-shot: brings the schema up to head, then exits. The API waits for it to
+  # finish, so a fresh `up` never races a half-migrated database.
+  migrate:
+    <<: *app-build
+    image: smartlogistics-api:${IMAGE_TAG:-local}
+    environment:
+      <<: *app-env
+      RUN_MIGRATIONS: "true"
+    command: ["python", "-c", "print('migrations applied')"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app-build
+    image: smartlogistics-api:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Development data. Idempotent, so running it twice is harmless.
+  #   docker compose --profile seed up seed
+  seed:
+    <<: *app-build
+    image: smartlogistics-api:${IMAGE_TAG:-local}
+    profiles: ["seed"]
+    environment:
+      <<: *app-env
+    command: ["python", "-m", "app.seeders.runner"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # The suite, in a container, against this Postgres. It builds its own
+  # `<database>_test` database and never touches the one the API uses.
+  #   docker compose --profile test run --rm test
+  test:
+    build:
+      context: .
+      target: dev
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13}
+    image: smartlogistics-api:${IMAGE_TAG:-local}-dev
+    profiles: ["test"]
+    environment:
+      <<: *app-env
+      ENVIRONMENT: test
+      # conftest.py appends _test and refuses to run against anything else.
+      WAIT_FOR_DB: "true"
+    command: ["pytest"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  postgres-data:
+  redis-data:

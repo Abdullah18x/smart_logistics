@@ -1,0 +1,32 @@
+# Application Gateway Ingress Controller. Swap ingressClassName to `webapprouting.kubernetes.io`
+# if you use the managed NGINX add-on instead.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smartlogistics-api
+  annotations:
+    appgw.ingress.kubernetes.io/backend-protocol: http
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    appgw.ingress.kubernetes.io/request-timeout: "60"
+    # Same endpoint Kubernetes uses, so the gateway and the cluster agree about
+    # which pods are able to take traffic.
+    appgw.ingress.kubernetes.io/health-probe-path: /health/ready
+    appgw.ingress.kubernetes.io/health-probe-status-codes: "200"
+    cert-manager.io/cluster-issuer: letsencrypt-production
+spec:
+  ingressClassName: azure-application-gateway
+  tls:
+    - hosts:
+        - REPLACE_ME.example.com
+      secretName: smartlogistics-api-tls
+  rules:
+    - host: REPLACE_ME.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: smartlogistics-api
+                port:
+                  name: http

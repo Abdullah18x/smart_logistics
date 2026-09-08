@@ -1,0 +1,26 @@
+# Generic ingress-nginx routing. The cloud overlays replace the annotations with
+# the controller each platform actually runs — an ALB on EKS, Application
+# Gateway on AKS — and set the real hostname and certificate.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smartlogistics-api
+  labels:
+    app.kubernetes.io/name: smartlogistics-api
+    app.kubernetes.io/part-of: smartlogistics
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: smartlogistics.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: smartlogistics-api
+                port:
+                  name: http

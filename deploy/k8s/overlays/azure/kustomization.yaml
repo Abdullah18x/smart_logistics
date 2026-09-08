@@ -1,0 +1,26 @@
+# AKS.
+#
+#   az acr login --name REPLACE_ME
+#   docker build -t REPLACE_ME.azurecr.io/smartlogistics-api:v0.1.0 .
+#   docker push  REPLACE_ME.azurecr.io/smartlogistics-api:v0.1.0
+#   kubectl apply -k deploy/k8s/overlays/azure
+#
+# Attach the registry to the cluster once, and no imagePullSecret is needed:
+#   az aks update -n smartlogistics -g REPLACE_ME --attach-acr REPLACE_ME
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: smartlogistics
+
+resources:
+  - ../../base
+
+images:
+  - name: smartlogistics-api
+    newName: REPLACE_ME.azurecr.io/smartlogistics-api
+    newTag: v0.1.0
+
+patches:
+  - path: ingress-patch.yaml
+  - path: serviceaccount-patch.yaml
+  - path: deployment-patch.yaml

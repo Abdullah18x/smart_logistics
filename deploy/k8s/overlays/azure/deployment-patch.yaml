@@ -1,0 +1,13 @@
+# Workload Identity injects its token through a projected volume, which needs
+# the label on the pod template and the service account token mounted.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smartlogistics-api
+spec:
+  template:
+    metadata:
+      labels:
+        azure.workload.identity/use: "true"
+    spec:
+      automountServiceAccountToken: true

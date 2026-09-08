@@ -1,0 +1,31 @@
+# AWS Load Balancer Controller. Creates an internet-facing ALB and terminates
+# TLS at it with a certificate from ACM.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smartlogistics-api
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: REPLACE_ME
+    # The ALB must test the same endpoint Kubernetes does, or it will keep
+    # sending traffic to a pod that has already reported itself unready.
+    alb.ingress.kubernetes.io/healthcheck-path: /health/ready
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+spec:
+  ingressClassName: alb
+  rules:
+    - host: REPLACE_ME.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: smartlogistics-api
+                port:
+                  name: http

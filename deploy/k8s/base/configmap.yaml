@@ -1,0 +1,29 @@
+# Non-secret configuration. Anything sensitive belongs in the Secret instead —
+# see secret.example.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartlogistics-api-config
+  labels:
+    app.kubernetes.io/name: smartlogistics-api
+    app.kubernetes.io/part-of: smartlogistics
+data:
+  APP_NAME: "SmartLogistics"
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+
+  DATABASE_ECHO: "false"
+  # Per pod. Multiply by the replica count and keep the total under whatever the
+  # managed database allows — RDS and Azure Database both cap connections by
+  # instance size, and exhausting them takes down every replica at once.
+  DATABASE_POOL_SIZE: "10"
+  DATABASE_MAX_OVERFLOW: "10"
+
+  ACCESS_TOKEN_TTL_MINUTES: "15"
+  REFRESH_TOKEN_TTL_DAYS: "14"
+  MAX_FAILED_LOGIN_ATTEMPTS: "5"
+  ACCOUNT_LOCKOUT_MINUTES: "15"
+  INVENTORY_HOLD_MINUTES: "120"
+  IDEMPOTENCY_TTL_HOURS: "24"
+
+  MONGO_DB: "smartlogistics"

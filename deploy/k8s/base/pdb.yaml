@@ -1,0 +1,14 @@
+# Keeps a node drain — an upgrade, a scale-down, a spot reclaim — from taking
+# every replica at once.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: smartlogistics-api
+  labels:
+    app.kubernetes.io/name: smartlogistics-api
+    app.kubernetes.io/part-of: smartlogistics
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: smartlogistics-api

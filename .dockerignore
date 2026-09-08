@@ -1,0 +1,38 @@
+# Keep the build context small and the image free of anything host-specific.
+
+.git
+.gitignore
+.github
+
+# Virtualenvs and caches — the image builds its own
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+htmlcov
+.coverage
+.coverage.*
+
+# Secrets. .env is host configuration and must never be baked into a layer.
+.env
+.env.*
+!.env.example
+
+# Documentation and local tooling, none of which the runtime needs
+# docs/ covers projectDocs/ too, since the briefs live inside it now.
+docs
+README.md
+Makefile
+
+# Kubernetes manifests are applied to a cluster, not copied into the image
+deploy/k8s
+
+# Editor and OS noise
+.DS_Store
+.idea
+.vscode
+*.swp
+*.log
