@@ -204,7 +204,7 @@
               ],
               "query": []
             },
-            "description": ""
+            "description": "Is the process up? Deliberately touches nothing else.\n\nA liveness probe that checked the database would have Kubernetes restart\nevery pod whenever Postgres hiccuped, which fixes nothing and turns a\ndependency outage into an outage of everything."
           }
         },
         {
@@ -223,7 +223,7 @@
               ],
               "query": []
             },
-            "description": ""
+            "description": "Can this instance serve traffic?\n\nReturns 503 when it cannot. A readiness probe is read by its status code,\nso answering 200 with ``{\"status\": \"degraded\"}`` would leave a pod that\ncannot reach its database sitting in the load balancer taking requests."
           }
         }
       ]
