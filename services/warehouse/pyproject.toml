@@ -1,0 +1,24 @@
+[project]
+name = "warehouse-service"
+version = "0.1.0"
+description = "SmartLogistics Warehouse: facilities, zones and operating hours."
+requires-python = ">=3.12"
+dependencies = ["sl-platform[otel]", "uvicorn[standard]>=0.32", "email-validator>=2.2"]
+
+[tool.uv.sources]
+sl-platform = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/warehouse"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-q --strict-markers"
