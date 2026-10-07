@@ -39,7 +39,8 @@ class ServiceSettings(BaseSettings):
     jwks_cache_seconds: int = 3600
 
     # --- Kafka ------------------------------------------------------------------
-    kafka_bootstrap_servers: str = "localhost:9092"
+    # The host-facing listener Docker Compose publishes; containers override it.
+    kafka_bootstrap_servers: str = "localhost:29092"
 
     # --- Idempotency ------------------------------------------------------------
     idempotency_ttl_hours: int = 24

@@ -17,11 +17,14 @@ from sl_platform.testing import generate_rsa_keypair, migrate, recreate_database
 ROOT = Path(__file__).resolve().parents[2]
 PRIVATE_PEM, PUBLIC_PEM = generate_rsa_keypair()
 SERVICES = ("identity", "warehouse", "inventory", "shipment")
-HOST = os.environ.get("E2E_PG_HOST", "localhost:5432")
+#: Each service's Postgres as Docker Compose publishes it. Set SL_PG_HOST
+#: (e.g. ``localhost:5432``) to put every database on one server instead.
+PORTS = {"identity": 5441, "warehouse": 5442, "inventory": 5443, "shipment": 5444}
 
 
 def url(service: str) -> str:
-    return f"postgresql+asyncpg://{service}:{service}@{HOST}/{service}_e2e_test"
+    host = os.environ.get("SL_PG_HOST") or f"localhost:{PORTS[service]}"
+    return f"postgresql+asyncpg://{service}:{service}@{host}/{service}_e2e_test"
 
 
 os.environ.update(ENVIRONMENT="test", LOG_JSON="false", JWT_KEY_ID="e2e")

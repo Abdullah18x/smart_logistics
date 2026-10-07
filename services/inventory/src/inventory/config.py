@@ -7,7 +7,7 @@ from sl_platform.config import ServiceSettings
 
 class Settings(ServiceSettings):
     service_name: str = "inventory"
-    database_url: str = "postgresql+asyncpg://inventory:inventory@localhost:5432/inventory"
+    database_url: str = "postgresql+asyncpg://inventory:inventory@localhost:5443/inventory"
     jwks_url: str | None = "http://localhost:8001/.well-known/jwks.json"
 
     unconfirmed_hold_minutes: int = Field(

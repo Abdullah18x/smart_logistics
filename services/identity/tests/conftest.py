@@ -9,7 +9,7 @@ from sl_platform.testing import generate_rsa_keypair, migrate, recreate_database
 
 PRIVATE_PEM, PUBLIC_PEM = generate_rsa_keypair()
 TEST_URL = test_database_url(
-    os.environ.get("DATABASE_URL", "postgresql+asyncpg://identity:identity@localhost:5432/identity")
+    os.environ.get("DATABASE_URL", "postgresql+asyncpg://identity:identity@localhost:5441/identity")
 )
 # Must be set before anything from ``identity`` is imported: settings and the
 # engine are built at import time.

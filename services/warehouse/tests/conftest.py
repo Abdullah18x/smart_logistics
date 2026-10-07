@@ -11,7 +11,7 @@ from sl_platform.testing import generate_rsa_keypair, migrate, recreate_database
 PRIVATE_PEM, PUBLIC_PEM = generate_rsa_keypair()
 TEST_URL = test_database_url(
     os.environ.get(
-        "DATABASE_URL", "postgresql+asyncpg://warehouse:warehouse@localhost:5432/warehouse"
+        "DATABASE_URL", "postgresql+asyncpg://warehouse:warehouse@localhost:5442/warehouse"
     )
 )
 # Tokens are verified with a static public key here; in a deployment the

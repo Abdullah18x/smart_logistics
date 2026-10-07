@@ -81,11 +81,40 @@ warehouse removes operator scopes in Identity via `warehouse.deleted`).
 
 ## Run it
 
+One developer CLI does everything, on every OS. It needs [uv](https://docs.astral.sh/uv/)
+and Docker Desktop (or Docker Engine).
+
+| macOS / Linux | Windows PowerShell | Windows cmd |
+|---|---|---|
+| `./dev.sh <command>` | `.\dev.ps1 <command>` | `dev <command>` |
+
+The wrappers create the workspace virtualenv on first run, then call
+`scripts/dev.py`, so every command behaves the same everywhere. `make <target>`
+aliases are there too for macOS/Linux users who prefer them.
+
+### Option A — services on your machine, infrastructure in Docker (best for coding)
+
 ```bash
-make keys          # Identity's signing key -> infra/keys/jwt-private.pem (git-ignored)
-make up            # builds 4 images; starts 4 Postgres instances, Kafka, gateway, Jaeger
-make seed          # warehouses, users, SKUs and stock
+./dev.sh setup        # install the workspace + generate Identity's signing key
+./dev.sh infra up     # 4 Postgres instances (5441-5444), Kafka (29092), Jaeger
+./dev.sh migrate      # every service; or: ./dev.sh migrate shipment inventory
+./dev.sh seed         # warehouses, users, SKUs and stock, in the right order
+./dev.sh start        # 4 APIs (8001-8004) + 4 workers in one terminal; Ctrl+C stops all
 ```
+
+`start --reload` restarts a service when its code changes, `start shipment inventory`
+runs a subset, and `start --no-workers` skips the Kafka workers. `./dev.sh status`
+shows every service's health; `./dev.sh reset` rolls back, migrates and re-seeds.
+
+### Option B — everything in Docker
+
+```bash
+./dev.sh docker up    # builds 4 images; databases, Kafka, gateway on :8000, Jaeger
+./dev.sh docker seed
+./dev.sh docker logs shipment     # docker ps | migrate | down [-v]
+```
+
+### Try it
 
 ```bash
 TOKEN=$(curl -s localhost:8000/api/v1/auth/login -H 'content-type: application/json' \
@@ -93,11 +122,13 @@ TOKEN=$(curl -s localhost:8000/api/v1/auth/login -H 'content-type: application/j
 curl -s localhost:8000/api/v1/shipments -H "Authorization: Bearer $TOKEN" | jq
 ```
 
+In option A there is no gateway: call the services directly on 8001-8004.
+
 | URL | What |
 |---|---|
-| http://localhost:8000 | Gateway — every API |
+| http://localhost:8000 | Gateway — every API (option B) |
 | http://localhost:800{1,2,3,4}/docs | Each service's Swagger UI |
-| http://localhost:8080 | Traefik dashboard |
+| http://localhost:8080 | Traefik dashboard (option B) |
 | http://localhost:16686 | Jaeger traces |
 | `docker compose --profile tools up -d kafka-ui` → :8090 | Kafka UI |
 
@@ -107,12 +138,14 @@ Seeded accounts (password `SmartLogistics!2026`): `admin@`, `support.lead@`,
 ## Develop and test
 
 ```bash
-make install       # one uv workspace venv with every service
-make test          # platform unit tests, each service's suite, cross-service e2e
-make test-shipment # one service
-make lint          # ruff + import-linter (services may never import each other)
-make check         # lint + `alembic check` per service
+./dev.sh test          # platform unit tests, each service's suite, cross-service e2e
+./dev.sh test shipment # one service
+./dev.sh lint          # ruff + import-linter (services may never import each other)
+./dev.sh check         # lint + `alembic check` per service
 ```
+
+Tests need the databases from `./dev.sh infra up`. To use a single Postgres server
+for everything instead, set `SL_PG_HOST=localhost:5432`.
 
 Service suites run against a real Postgres (`<service>_test` databases built from
 the migrations). `tests/e2e` loads all four services into one process, each on its
@@ -130,6 +163,7 @@ services/<name>/
   migrations/          the service's own Alembic chain
   tests/
 infra/docker/          one Dockerfile for all services (ARG SERVICE) + entrypoint
+scripts/dev.py         the cross-platform developer CLI behind dev.sh / dev.ps1 / dev.cmd
 infra/keys/            generated signing key (git-ignored)
 tests/e2e/             cross-service flows
 docs/                  architecture, ADRs, database notes, briefs

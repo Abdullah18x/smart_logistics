@@ -1,59 +1,53 @@
+# Thin aliases for ./dev.sh, which works the same on macOS, Linux and (as
+# dev.ps1 / dev.cmd) Windows. Run `./dev.sh help` for every command.
 .DEFAULT_GOAL := help
-SERVICES := identity warehouse inventory shipment
-UV := uv run --no-sync
+DEV := ./dev.sh
 
-.PHONY: help install keys up down logs ps seed test test-platform test-e2e lint format check migrate-all
+.PHONY: help setup keys infra-up infra-down migrate seed reset start status \
+	up down ps logs docker-migrate docker-seed test lint check
 
 help:  ## Show this help
 	@grep -E '^[a-z0-9-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-install:  ## Create the workspace venv with every service and dev tools
-	uv sync --all-packages
+setup:  ## Install the workspace and generate the signing key
+	$(DEV) setup
+keys:  ## Generate Identity's signing key
+	$(DEV) keys
 
-keys:  ## Generate Identity's RS256 signing key (infra/keys/jwt-private.pem)
-	@test -f infra/keys/jwt-private.pem && echo "key exists" || \
-		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out infra/keys/jwt-private.pem
-	@chmod 644 infra/keys/jwt-private.pem
+# --- local: services on this machine, infrastructure in Docker ----------------
+infra-up:  ## Start the 4 databases, Kafka and Jaeger
+	$(DEV) infra up
+infra-down:  ## Stop them
+	$(DEV) infra down
+migrate:  ## Migrate every service (make migrate s="shipment inventory")
+	$(DEV) migrate $(s)
+seed:  ## Load development data
+	$(DEV) seed
+reset:  ## Roll back, migrate and seed every service
+	$(DEV) reset
+start:  ## Run APIs + workers in one terminal (make start s=shipment)
+	$(DEV) start $(s)
+status:  ## Health of every service
+	$(DEV) status
 
-up: keys  ## Build and start the whole stack
-	docker compose up -d --build
-
-down:  ## Stop the stack (add v=1 to delete volumes)
-	docker compose down $(if $(v),-v,)
-
-logs:  ## Follow logs — make logs s=shipment
-	docker compose logs -f $(s)
-
+# --- everything in Docker -------------------------------------------------------
+up:  ## Build and start the full stack
+	$(DEV) docker up
+down:  ## Stop it (make down v=1 deletes volumes)
+	$(DEV) docker down $(if $(v),-v,)
 ps:  ## Container status
-	docker compose ps
+	$(DEV) docker ps
+logs:  ## Follow logs (make logs s=shipment)
+	$(DEV) docker logs $(s)
+docker-migrate:  ## Migrate inside the containers
+	$(DEV) docker migrate
+docker-seed:  ## Seed inside the containers
+	$(DEV) docker seed
 
-seed:  ## Load development data into every service (order matters)
-	docker compose exec warehouse python -m warehouse.seed
-	docker compose exec identity python -m identity.seed
-	docker compose exec inventory python -m inventory.seed
-
-test:  ## Every suite: platform, each service, then cross-service e2e
-	cd libs/sl-platform && $(UV) pytest tests
-	@for s in $(SERVICES); do echo "== $$s"; (cd services/$$s && $(UV) pytest) || exit 1; done
-	$(UV) pytest tests/e2e
-
-test-%:  ## One service's suite — make test-shipment
-	cd services/$* && $(UV) pytest
-
-test-e2e:  ## Cross-service flows, all services in one process
-	$(UV) pytest tests/e2e
-
+# --- quality --------------------------------------------------------------------
+test:  ## All suites (make test s=shipment for one)
+	$(DEV) test $(s)
 lint:  ## Ruff + service-boundary contracts
-	$(UV) ruff check libs services tests
-	$(UV) ruff format --check libs services tests
-	$(UV) lint-imports
-
-format:  ## Format and autofix
-	$(UV) ruff format libs services tests
-	$(UV) ruff check --fix libs services tests
-
-check: lint  ## Lint plus migration drift check for every service
-	@for s in $(SERVICES); do (cd services/$$s && $(UV) alembic check) || exit 1; done
-
-migrate-all:  ## Apply migrations to each service's local database
-	@for s in $(SERVICES); do (cd services/$$s && $(UV) alembic upgrade head) || exit 1; done
+	$(DEV) lint
+check:  ## Lint + migration drift per service
+	$(DEV) check

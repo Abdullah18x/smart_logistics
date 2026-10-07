@@ -5,7 +5,7 @@ from sl_platform.config import ServiceSettings
 
 class Settings(ServiceSettings):
     service_name: str = "warehouse"
-    database_url: str = "postgresql+asyncpg://warehouse:warehouse@localhost:5432/warehouse"
+    database_url: str = "postgresql+asyncpg://warehouse:warehouse@localhost:5442/warehouse"
     jwks_url: str | None = "http://localhost:8001/.well-known/jwks.json"
 
 

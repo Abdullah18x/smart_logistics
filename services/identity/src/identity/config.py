@@ -7,7 +7,7 @@ from sl_platform.config import ServiceSettings
 
 class Settings(ServiceSettings):
     service_name: str = "identity"
-    database_url: str = "postgresql+asyncpg://identity:identity@localhost:5432/identity"
+    database_url: str = "postgresql+asyncpg://identity:identity@localhost:5441/identity"
 
     # --- Signing key ------------------------------------------------------------
     jwt_private_key: str | None = Field(default=None, description="PEM private key.")

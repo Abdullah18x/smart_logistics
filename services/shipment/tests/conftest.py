@@ -10,7 +10,7 @@ from sl_platform.testing import generate_rsa_keypair, migrate, recreate_database
 
 PRIVATE_PEM, PUBLIC_PEM = generate_rsa_keypair()
 TEST_URL = test_database_url(
-    os.environ.get("DATABASE_URL", "postgresql+asyncpg://shipment:shipment@localhost:5432/shipment")
+    os.environ.get("DATABASE_URL", "postgresql+asyncpg://shipment:shipment@localhost:5444/shipment")
 )
 # Tokens are verified with a static public key here; in a deployment the
 # service fetches it from Identity's JWKS endpoint instead.
