@@ -8,11 +8,11 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Write-Error "uv is required: https://docs.astral.sh/uv/getting-started/installation/"
     exit 1
 }
-# First run: build the workspace virtualenv the CLI runs in.
-if (-not (Test-Path ".venv\Scripts\python.exe")) {
-    uv sync --all-packages
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
+# Keep the workspace virtualenv in step with uv.lock before every command: it
+# installs every service on the first run, repairs a stale .venv (for example
+# one left by the old monolith), and is a no-op taking milliseconds otherwise.
+uv sync --all-packages --quiet
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $cliArgs = $args
 if ($cliArgs.Count -eq 0 -or $cliArgs[0] -eq "help") { $cliArgs = @("--help") }
 uv run --no-sync python scripts/dev.py @cliArgs
