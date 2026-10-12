@@ -167,6 +167,13 @@ services:
       traefik.http.routers.docs.rule: PathPrefix(`/docs`)
       traefik.http.routers.docs.entrypoints: web
       traefik.http.services.docs.loadbalancer.server.port: "8080"
+      # http://localhost:8000 on its own opens the docs.
+      traefik.http.routers.root.rule: Path(`/`)
+      traefik.http.routers.root.entrypoints: web
+      traefik.http.routers.root.service: docs
+      traefik.http.routers.root.middlewares: root-to-docs
+      traefik.http.middlewares.root-to-docs.redirectregex.regex: ^(https?://[^/]+)/$$
+      traefik.http.middlewares.root-to-docs.redirectregex.replacement: $${1}/docs/
 
   jaeger:
     image: jaegertracing/all-in-one:1.62.0

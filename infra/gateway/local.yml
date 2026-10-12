@@ -41,8 +41,17 @@ http:
     docs:
       rule: PathPrefix(`/docs`)
       service: docs
+    # http://localhost:8000 on its own opens the docs.
+    root:
+      rule: Path(`/`)
+      service: docs
+      middlewares: [root-to-docs]
 
   middlewares:
+    root-to-docs:
+      redirectRegex:
+        regex: ^(https?://[^/]+)/$
+        replacement: ${1}/docs/
     openapi-json:
       replacePath:
         path: /openapi.json
