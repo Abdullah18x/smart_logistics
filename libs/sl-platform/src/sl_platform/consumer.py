@@ -82,16 +82,30 @@ class KafkaConsumerRunner:
     async def run(self, stop: asyncio.Event) -> None:
         from aiokafka import AIOKafkaConsumer
 
-        consumer = AIOKafkaConsumer(
-            *self.processor.topics,
-            bootstrap_servers=self.bootstrap_servers,
-            group_id=self.processor.name,
-            enable_auto_commit=False,
-            # A new consumer group replays the topic from the start, which is
-            # how a fresh service builds its local read models.
-            auto_offset_reset="earliest",
-        )
-        await consumer.start()
+        from sl_platform.worker import retry_until_ready
+
+        consumer = None
+
+        async def connect() -> None:
+            nonlocal consumer
+            candidate = AIOKafkaConsumer(
+                *self.processor.topics,
+                bootstrap_servers=self.bootstrap_servers,
+                group_id=self.processor.name,
+                enable_auto_commit=False,
+                # A new consumer group replays the topic from the start, which is
+                # how a fresh service builds its local read models.
+                auto_offset_reset="earliest",
+            )
+            try:
+                await candidate.start()
+            except Exception:
+                await candidate.stop()
+                raise
+            consumer = candidate
+
+        if not await retry_until_ready(connect, f"consumer {self.processor.name}", stop):
+            return
         try:
             while not stop.is_set():
                 batch = await consumer.getmany(timeout_ms=500)

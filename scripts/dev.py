@@ -44,6 +44,7 @@ import argparse
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -226,8 +227,43 @@ def _pump(name: str, stream, color: int) -> None:
         sys.stdout.flush()
 
 
+def _port_open(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def check_infra(services: list[str], workers: bool) -> None:
+    """Fail fast, with the fix, when the Docker infrastructure isn't running."""
+    missing = []
+    for service in services:
+        host, _, port = (
+            os.environ.get("SL_PG_HOST") or f"localhost:{SERVICES[service][1]}"
+        ).rpartition(":")
+        if not _port_open(host or "localhost", int(port)):
+            missing.append(f"{service}-db (:{port})")
+    kafka = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092").split(",")[0]
+    kafka_host, _, kafka_port = kafka.rpartition(":")
+    kafka_up = _port_open(kafka_host or "localhost", int(kafka_port))
+    if missing:
+        fail(
+            f"can't reach {', '.join(missing)}"
+            + ("" if kafka_up else f" or Kafka (:{kafka_port})")
+            + ".\n       Start the infrastructure first:  ./dev.sh infra up"
+        )
+    if workers and not kafka_up:
+        print(
+            f"\033[33mwarning:\033[0m Kafka (:{kafka_port}) isn't reachable — the workers "
+            "will keep retrying until it is (./dev.sh infra up). Events wait in "
+            "each service's outbox meanwhile."
+        )
+
+
 def cmd_start(args: argparse.Namespace) -> None:
     services = pick(args.services)
+    check_infra(services, workers=not args.no_workers)
 
     def interrupt(*_: object) -> None:
         raise KeyboardInterrupt

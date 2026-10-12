@@ -74,10 +74,15 @@ class KafkaPublisher:
     async def start(self) -> None:
         from aiokafka import AIOKafkaProducer
 
-        self._producer = AIOKafkaProducer(
+        producer = AIOKafkaProducer(
             bootstrap_servers=self._bootstrap, acks="all", enable_idempotence=True
         )
-        await self._producer.start()
+        try:
+            await producer.start()
+        except Exception:
+            await producer.stop()  # release the half-open client before retrying
+            raise
+        self._producer = producer
 
     async def stop(self) -> None:
         if self._producer is not None:
