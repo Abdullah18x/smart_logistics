@@ -6,7 +6,7 @@ and checks every token's signature locally. A key id (``kid``) the cache does
 not know triggers one re-fetch, which is how key rotation propagates.
 
 The token carries everything authorisation needs: role (the role gate) plus
-warehouse ids and courier id (row scoping, ADR-009).
+warehouse ids and courier id (row scoping, ADR-003).
 """
 
 from __future__ import annotations

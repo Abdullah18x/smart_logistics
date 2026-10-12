@@ -30,7 +30,11 @@ RETRYABLE_STATUS = frozenset({502, 503, 504})
 
 
 class CircuitBreaker:
-    """Opens after ``threshold`` consecutive failures; half-opens after ``reset_after``s."""
+    """Opens after ``threshold`` consecutive failed attempts for ``reset_after`` seconds.
+
+    After that, calls go through again; the first success closes it, and since the
+    failure count is kept, the first failure re-opens it straight away.
+    """
 
     def __init__(self, threshold: int = 5, reset_after: float = 30.0) -> None:
         self.threshold = threshold
@@ -40,7 +44,6 @@ class CircuitBreaker:
 
     @property
     def is_open(self) -> bool:
-        # Once reset_after has passed the breaker is half-open: one call probes.
         return self.opened_at is not None and time.monotonic() - self.opened_at < self.reset_after
 
     def record_success(self) -> None:

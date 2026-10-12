@@ -68,6 +68,14 @@ class Weekday(IntEnum):
 
 
 class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """A physical facility: fulfilment centre, distribution hub, regional depot or returns centre.
+
+    The address is stored inline, since a warehouse has exactly one permanent
+    address. Two coordinate pairs: the centroid for distance maths and the
+    entrance a courier actually drives to. Every change is published as a full
+    snapshot on ``warehouse.events``, which Identity, Inventory and Shipment consume.
+    """
+
     __tablename__ = "warehouses"
     __table_args__ = (
         Index("ix_warehouses_city_status", "city", "status"),
@@ -161,6 +169,13 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
 
 class WarehouseZone(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """A functional area inside a facility, following the flow of goods.
+
+    Receiving, storage, picking, packing, staging, dispatch, returns, quarantine.
+    Codes are unique per warehouse, not globally, because operators read them off
+    physical signage.
+    """
+
     __tablename__ = "warehouse_zones"
     __table_args__ = (
         UniqueConstraint("warehouse_id", "code", name="uq_warehouse_zone_code"),
@@ -190,6 +205,8 @@ class WarehouseZone(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
 
 class WarehouseOperatingHours(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """The weekly opening schedule: one row per weekday, in the warehouse's local timezone."""
+
     __tablename__ = "warehouse_operating_hours"
     __table_args__ = (
         UniqueConstraint("warehouse_id", "day_of_week", name="uq_warehouse_operating_day"),

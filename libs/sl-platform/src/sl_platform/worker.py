@@ -1,7 +1,7 @@
 """Entry point for a service's background process: outbox relay + consumers.
 
 The HTTP process and the worker process run from the same image with
-different commands, so they scale independently (ADR-001).
+different commands, so they scale independently (ADR-013).
 """
 
 from __future__ import annotations

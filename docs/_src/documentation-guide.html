@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>SmartLogistics — Documentation Guide</title>
+<style>
+@page { size: A4; }
+:root { --ink:#141a24; --muted:#5b6475; --line:#e3e7ee; --accent:#2563eb; --soft:#f4f7fb; --soft2:#eef4ff; }
+* { box-sizing: border-box; }
+body { font: 9.6pt/1.45 -apple-system, "Segoe UI", Inter, Helvetica, Arial, sans-serif; color: var(--ink); margin: 0; }
+.eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .08em; font-size: 8.5pt; text-transform: uppercase; }
+h1 { font-size: 21pt; margin: 4px 0 2px; letter-spacing: -.01em; }
+.lead { color: var(--muted); margin: 0 0 10px; font-size: 10.5pt; }
+.status { display: flex; gap: 22px; flex-wrap: wrap; border: 1px solid var(--line); background: var(--soft); border-radius: 8px; padding: 8px 12px; font-size: 9pt; row-gap: 2px; }
+.status b { font-weight: 700; }
+.box { border: 1px solid #c9dafb; background: var(--soft2); border-radius: 8px; padding: 10px 14px; margin: 10px 0 12px; }
+.box h2 { margin: 0 0 6px; font-size: 12pt; color: #1d4ed8; }
+.box ol { margin: 0; padding-left: 18px; }
+.box li { margin: 3px 0; }
+code { font: 9pt "SF Mono", Menlo, Consolas, monospace; background: #e7eefb; padding: 1px 5px; border-radius: 4px; }
+.small { font-size: 9pt; color: #1e3a8a; margin-top: 6px; }
+h3 { font-size: 12pt; margin: 6px 0 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+th { text-align: left; color: var(--muted); font-size: 8pt; letter-spacing: .06em; text-transform: uppercase; padding: 7px 8px; border-bottom: 1.5px solid var(--line); }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { font-weight: 650; width: 25%; }
+td:nth-child(2) { width: 25%; }
+td:nth-child(2) code { background: none; color: #1d4ed8; font-weight: 700; padding: 0; }
+.foot { color: #8a93a3; font-size: 8pt; margin-top: 14px; }
+</style></head><body>
+<div class="eyebrow">TransFleet — SmartLogistics Backend</div>
+<h1>Documentation Guide</h1>
+<p class="lead">Where to look, depending on what you need to do.</p>
+
+<div class="status">
+  <span><b>Status:</b> Week 1 of 5 complete (microservices foundation) · Week 2 in progress</span>
+  <span><b>Services:</b> 4, each with its own database</span>
+  <span><b>Tests:</b> 115 passing</span>
+  <span><b>API:</b> 56 endpoints behind one gateway</span>
+</div>
+
+<div class="box">
+  <h2>Fastest way to see it running</h2>
+  <ol>
+    <li>Install <b>Docker Desktop</b> and <b>uv</b>, then from the repository root: <code>./dev.sh docker up</code> (Windows: <code>dev docker up</code>)</li>
+    <li>Load sample data: <code>./dev.sh docker seed</code></li>
+    <li>Open <code>http://localhost:8000/docs</code> — one Swagger UI for every service, generated from the code. Pick a service in the top-right dropdown.</li>
+  </ol>
+  <div class="small">Log in with <code>admin@transfleet.com</code> / <code>SmartLogistics!2026</code>, or one of the other 10 seeded accounts (support, warehouse operators, couriers) to see what each role can and cannot do. For day-to-day coding, run the services on your machine instead: <code>./dev.sh infra up</code> then <code>./dev.sh start --reload</code>.</div>
+</div>
+
+<h3>If you want to…</h3>
+<table>
+  <tr><th>Goal</th><th>Read</th><th>What's there</th></tr>
+  <tr><td>Set the project up and run it</td><td><code>README.md</code></td><td>Prerequisites, the two run modes (services on your machine or everything in Docker) on macOS, Linux and Windows, every <code>./dev.sh</code> command, configuration and troubleshooting.</td></tr>
+  <tr><td>Try the API myself</td><td><code>README.md</code> → API docs<br><code>docs/curl/</code></td><td>Swagger UI for all services at <code>localhost:8000/docs</code>, a Postman collection, a merged OpenAPI file and an offline HTML page with copy-paste curl commands — all regenerated from the code with <code>./dev.sh docs</code>.</td></tr>
+  <tr><td>Understand how it's built and why</td><td><code>docs/ARCHITECTURE.md</code><br><code>docs/adr/</code></td><td>Services and ownership, how they communicate (REST, Kafka events), consistency and idempotency, security, observability, the Week 2 design. Section 1.1 maps every requirement in the brief to its honest status. 16 decision records.</td></tr>
+  <tr><td>See the requirements and their traceability</td><td><code>docs/PRD.md</code></td><td>Key use cases, functional and non-functional requirements, milestones, and a matrix from each requirement to the code and tests that deliver it.</td></tr>
+  <tr><td>See the database design</td><td><code>docs/database.md</code></td><td>Every service's tables, columns, keys and constraints with ER diagrams — generated from the models, so it cannot drift.</td></tr>
+  <tr><td>Review what was delivered this week</td><td><code>docs/phase_1.md</code></td><td>The Week 1 build log: what was built, defects found and fixed, and what is deliberately left for later weeks.</td></tr>
+  <tr><td>See the original requirements</td><td><code>docs/projectDocs/</code></td><td>The assignment briefs this project is built against, unmodified.</td></tr>
+</table>
+
+<p class="foot">SmartLogistics — Intelligent Supply Chain &amp; Delivery Orchestration Platform (TransFleet). The API collection and database reference are generated from the code; the guide's source is <code>docs/_src/documentation-guide.html</code>. The Phase 1 monolith and its documents remain on the <code>phase_1</code> branch.</p>
+</body></html>

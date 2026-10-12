@@ -29,7 +29,7 @@ start:  ## Run APIs + workers in one terminal (make start s=shipment)
 	$(DEV) start $(s)
 status:  ## Health of every service
 	$(DEV) status
-docs:  ## Regenerate docs/curl (merged OpenAPI, Postman, curl) from the routes
+docs:  ## Regenerate docs/curl and docs/database.md from the code
 	$(DEV) docs
 
 # --- everything in Docker -------------------------------------------------------

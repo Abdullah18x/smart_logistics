@@ -234,6 +234,12 @@ class ShipmentItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class Package(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A physical parcel; one shipment may split across several.
+
+    The barcode is unique system-wide rather than per shipment, because that is
+    what a warehouse scanner and a courier's device actually read.
+    """
+
     __tablename__ = "packages"
     __table_args__ = (
         UniqueConstraint("shipment_id", "sequence_no", name="uq_package_sequence"),

@@ -306,7 +306,7 @@ class ShipmentService:
 
     @staticmethod
     def _visible(shipment: Shipment, principal: Principal) -> bool:
-        """Row scoping (ADR-009). Out of scope reads as "not found"."""
+        """Row scoping (ADR-003). Out of scope reads as "not found"."""
         if principal.sees_all_warehouses:
             return True
         if principal.role is UserRole.WAREHOUSE_OPERATOR:

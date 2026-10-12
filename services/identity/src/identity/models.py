@@ -30,6 +30,13 @@ class UserStatus(StrEnum):
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """A person who can authenticate: credentials, role and lockout state.
+
+    Nothing operational lives here. A courier's vehicle, capacity and availability
+    belong to the Courier service (Week 2); this row only carries ``courier_id`` so
+    the access token can name the courier profile it acts for.
+    """
+
     __tablename__ = "users"
     __table_args__ = (
         Index("ix_users_role_status", "role", "status"),

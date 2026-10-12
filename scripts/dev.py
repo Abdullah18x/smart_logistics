@@ -18,7 +18,8 @@ Local development (services on your machine, infrastructure in Docker):
     start [svc ...]           run the APIs and their workers in one terminal
                               --no-workers, --reload; Ctrl+C stops everything
     status                    health of every service on 8001-8004
-    docs                      regenerate docs/curl (merged OpenAPI, Postman, curl)
+    docs                      regenerate docs/curl (OpenAPI, Postman, curl) and
+                              docs/database.md from the code
     reset                     migrate --down, migrate, seed
 
 Everything in Docker:
@@ -391,6 +392,8 @@ def cmd_docker(args: argparse.Namespace) -> None:
 def cmd_docs(_: argparse.Namespace) -> None:
     say("regenerating docs/curl from every service's routes")
     run([PYTHON, str(ROOT / "scripts" / "generate_api_docs.py")])
+    say("regenerating docs/database.md from every service's models")
+    run([PYTHON, str(ROOT / "scripts" / "generate_db_docs.py")])
 
 
 def cmd_test(args: argparse.Namespace) -> None:
@@ -462,7 +465,9 @@ def main() -> None:
     start.set_defaults(func=cmd_start)
 
     sub.add_parser("status", help="health of every service").set_defaults(func=cmd_status)
-    sub.add_parser("docs", help="regenerate docs/curl from the routes").set_defaults(func=cmd_docs)
+    sub.add_parser("docs", help="regenerate docs/curl and docs/database.md").set_defaults(
+        func=cmd_docs
+    )
 
     docker = sub.add_parser("docker", help="the full stack in Docker")
     docker.add_argument("action", choices=["up", "down", "ps", "logs", "migrate", "seed"])
