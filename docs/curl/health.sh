@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Auto-generated — do not edit. Regenerate with `make api`.
+# Auto-generated — do not edit. Regenerate with `./dev.sh docs`.
 #
-# Usage:
-#   source docs/curl/env.sh     # sets BASE_URL and logs in
-#   bash docs/curl/<file>.sh    # or copy individual commands
+# Probes are per service, so they are called on each service's own port,
+# not through the gateway. `./dev.sh status` does the same.
 
-BASE_URL="${BASE_URL:-http://localhost:8000}"
+# identity: liveness, then readiness (checks its own database)
+curl -s http://localhost:8001/health | jq
+curl -s http://localhost:8001/health/ready | jq
 
-# Liveness probe
-curl -s -X GET "$BASE_URL/health" | jq
+# warehouse: liveness, then readiness (checks its own database)
+curl -s http://localhost:8002/health | jq
+curl -s http://localhost:8002/health/ready | jq
 
-# Readiness probe — checks dependencies
-curl -s -X GET "$BASE_URL/health/ready" | jq
+# inventory: liveness, then readiness (checks its own database)
+curl -s http://localhost:8003/health | jq
+curl -s http://localhost:8003/health/ready | jq
+
+# shipment: liveness, then readiness (checks its own database)
+curl -s http://localhost:8004/health | jq
+curl -s http://localhost:8004/health/ready | jq

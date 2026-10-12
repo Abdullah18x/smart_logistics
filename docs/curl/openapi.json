@@ -2,42 +2,83 @@
   "openapi": "3.1.0",
   "info": {
     "title": "SmartLogistics",
-    "description": "\nBackend for **SmartLogistics** \u2014 TransFleet's supply chain and delivery\norchestration platform.\n\nAuthenticate at `POST /api/v1/auth/login`, then use **Authorize** to send the\naccess token with subsequent requests.\n",
-    "version": "0.1.0"
+    "version": "0.2.0",
+    "description": "Every service's API as the gateway exposes it on :8000. Each tag is owned by one service; `x-service` on an operation names it.\n\nLog in with `POST /api/v1/auth/login`, then authorise with the `access_token`."
   },
-  "paths": {
-    "/health": {
-      "get": {
-        "tags": [
-          "Health"
-        ],
-        "summary": "Liveness probe",
-        "description": "Is the process up? Deliberately touches nothing else.\n\nA liveness probe that checked the database would have Kubernetes restart\nevery pod whenever Postgres hiccuped, which fixes nothing and turns a\ndependency outage into an outage of everything.",
-        "operationId": "health_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Health Health Get"
-                }
-              }
-            }
-          }
-        }
-      }
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Gateway"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "**identity service** · Login, refresh, logout, JWKS."
     },
-    "/health/ready": {
+    {
+      "name": "Users",
+      "description": "**identity service** · Account management and warehouse scoping."
+    },
+    {
+      "name": "Warehouses",
+      "description": "**warehouse service** · Facilities, zones, hours."
+    },
+    {
+      "name": "Catalog",
+      "description": "**inventory service** · SKUs."
+    },
+    {
+      "name": "Inventory",
+      "description": "**inventory service** · Stock levels, adjustments, ledger."
+    },
+    {
+      "name": "Reservations",
+      "description": "**inventory service** · Stock holds, called by Shipment."
+    },
+    {
+      "name": "Shipments",
+      "description": "**shipment service** · Lifecycle, packing, audit trail."
+    }
+  ],
+  "x-tagGroups": [
+    {
+      "name": "identity",
+      "tags": [
+        "Authentication",
+        "Users"
+      ]
+    },
+    {
+      "name": "warehouse",
+      "tags": [
+        "Warehouses"
+      ]
+    },
+    {
+      "name": "inventory",
+      "tags": [
+        "Catalog",
+        "Inventory",
+        "Reservations"
+      ]
+    },
+    {
+      "name": "shipment",
+      "tags": [
+        "Shipments"
+      ]
+    }
+  ],
+  "paths": {
+    "/.well-known/jwks.json": {
       "get": {
         "tags": [
-          "Health"
+          "Authentication"
         ],
-        "summary": "Readiness probe \u2014 checks dependencies",
-        "description": "Can this instance serve traffic?\n\nReturns 503 when it cannot. A readiness probe is read by its status code,\nso answering 200 with ``{\"status\": \"degraded\"}`` would leave a pod that\ncannot reach its database sitting in the load balancer taking requests.",
-        "operationId": "readiness_health_ready_get",
+        "summary": "Public signing keys (JWKS)",
+        "description": "Every service fetches this once and verifies tokens locally.",
+        "operationId": "jwks__well_known_jwks_json_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -46,15 +87,13 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Readiness Health Ready Get"
+                  "title": "Response Jwks  Well Known Jwks Json Get"
                 }
               }
             }
-          },
-          "503": {
-            "description": "A dependency is unreachable"
           }
-        }
+        },
+        "x-service": "identity"
       }
     },
     "/api/v1/auth/login": {
@@ -63,7 +102,7 @@
           "Authentication"
         ],
         "summary": "Authenticate and receive a token pair",
-        "description": "Repeated failures lock the account temporarily.",
+        "description": "The access token carries role, warehouse scope and courier id, so every\nother service can authorise without calling Identity.",
         "operationId": "login_api_v1_auth_login_post",
         "requestBody": {
           "content": {
@@ -87,7 +126,7 @@
             }
           },
           "401": {
-            "description": "Bad credentials, locked or inactive account",
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -106,7 +145,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
       }
     },
     "/api/v1/auth/refresh": {
@@ -115,7 +155,7 @@
           "Authentication"
         ],
         "summary": "Exchange a refresh token for a new pair",
-        "description": "Refresh tokens rotate: the presented token is revoked and replaced.\n\nReplaying an already-rotated token revokes every session for that user, on\nthe assumption it was stolen.",
+        "description": "Refresh tokens rotate. Replaying a rotated token revokes every session.",
         "operationId": "refresh_api_v1_auth_refresh_post",
         "requestBody": {
           "content": {
@@ -139,7 +179,7 @@
             }
           },
           "401": {
-            "description": "Token invalid, expired or revoked",
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -158,7 +198,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
       }
     },
     "/api/v1/auth/logout": {
@@ -166,8 +207,7 @@
         "tags": [
           "Authentication"
         ],
-        "summary": "Revoke the current session, or all sessions",
-        "description": "Omit ``refresh_token`` to sign out of every device.",
+        "summary": "Revoke one or all sessions",
         "operationId": "logout_api_v1_auth_logout_post",
         "requestBody": {
           "content": {
@@ -190,16 +230,6 @@
               }
             }
           },
-          "401": {
-            "description": "Refresh token invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -215,7 +245,8 @@
           {
             "HTTPBearer": []
           }
-        ]
+        ],
+        "x-service": "identity"
       }
     },
     "/api/v1/auth/sessions": {
@@ -223,8 +254,8 @@
         "tags": [
           "Authentication"
         ],
-        "summary": "List the caller's active sessions",
-        "operationId": "list_sessions_api_v1_auth_sessions_get",
+        "summary": "The caller's active sessions",
+        "operationId": "sessions_api_v1_auth_sessions_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -235,7 +266,7 @@
                     "$ref": "#/components/schemas/SessionRead"
                   },
                   "type": "array",
-                  "title": "Response List Sessions Api V1 Auth Sessions Get"
+                  "title": "Response Sessions Api V1 Auth Sessions Get"
                 }
               }
             }
@@ -245,7 +276,8 @@
           {
             "HTTPBearer": []
           }
-        ]
+        ],
+        "x-service": "identity"
       }
     },
     "/api/v1/auth/me": {
@@ -253,7 +285,7 @@
         "tags": [
           "Authentication"
         ],
-        "summary": "Return the authenticated user's profile",
+        "summary": "The caller's profile",
         "operationId": "me_api_v1_auth_me_get",
         "responses": {
           "200": {
@@ -271,7 +303,8 @@
           {
             "HTTPBearer": []
           }
-        ]
+        ],
+        "x-service": "identity"
       }
     },
     "/api/v1/users": {
@@ -280,11 +313,31 @@
           "Users"
         ],
         "summary": "Create a user",
-        "description": "Accounts are created by an admin; there is no public self-registration.",
         "operationId": "create_user_api_v1_users_post",
         "security": [
           {
             "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Send a unique value to make retries safe. A repeat with the same key and body returns the original response instead of acting twice.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Send a unique value to make retries safe. A repeat with the same key and body returns the original response instead of acting twice."
           }
         ],
         "requestBody": {
@@ -319,14 +372,14 @@
             }
           },
           "409": {
-            "description": "Email already registered",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "422": {
             "description": "Validation Error",
@@ -338,7 +391,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
       },
       "get": {
         "tags": [
@@ -365,10 +419,8 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter by role.",
               "title": "Role"
-            },
-            "description": "Filter by role."
+            }
           },
           {
             "name": "status",
@@ -383,10 +435,8 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter by account status.",
               "title": "Status"
-            },
-            "description": "Filter by account status."
+            }
           },
           {
             "name": "search",
@@ -402,10 +452,8 @@
                   "type": "null"
                 }
               ],
-              "description": "Matches name or email.",
               "title": "Search"
-            },
-            "description": "Matches name or email."
+            }
           },
           {
             "name": "limit",
@@ -462,7 +510,122 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
+      }
+    },
+    "/api/v1/users/me": {
+      "patch": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update the caller's own profile",
+        "operationId": "update_me_api_v1_users_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "identity"
+      }
+    },
+    "/api/v1/users/me/password": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Change the caller's password",
+        "operationId": "change_password_api_v1_users_me_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "identity"
       }
     },
     "/api/v1/users/{user_id}": {
@@ -530,13 +693,14 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
       },
       "patch": {
         "tags": [
           "Users"
         ],
-        "summary": "Update a user's profile",
+        "summary": "Update a user",
         "operationId": "update_user_api_v1_users__user_id__patch",
         "security": [
           {
@@ -606,14 +770,14 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
       },
       "delete": {
         "tags": [
           "Users"
         ],
-        "summary": "Deactivate a user",
-        "description": "Soft delete: other records reference users by id, so the row is kept and\nthe account is marked deactivated.",
+        "summary": "Deactivate (soft delete) a user",
         "operationId": "delete_user_api_v1_users__user_id__delete",
         "security": [
           {
@@ -637,7 +801,7 @@
             "description": "Successful Response"
           },
           "403": {
-            "description": "Admin role required, or self-deletion",
+            "description": "Admin role required",
             "content": {
               "application/json": {
                 "schema": {
@@ -666,121 +830,8 @@
               }
             }
           }
-        }
-      }
-    },
-    "/api/v1/users/me": {
-      "patch": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Update the caller's own profile",
-        "description": "Role and status are deliberately not editable here.",
-        "operationId": "update_own_profile_api_v1_users_me_patch",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserUpdate"
-              }
-            }
-          },
-          "required": true
         },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserRead"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/users/me/password": {
-      "post": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Change the caller's password",
-        "description": "All other sessions are revoked on success.",
-        "operationId": "change_own_password_api_v1_users_me_password_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasswordChange"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MessageResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Current password is incorrect",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "New password matches the old one",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        "x-service": "identity"
       }
     },
     "/api/v1/users/{user_id}/role": {
@@ -788,8 +839,8 @@
         "tags": [
           "Users"
         ],
-        "summary": "Change a user's role",
-        "operationId": "change_user_role_api_v1_users__user_id__role_patch",
+        "summary": "Change role",
+        "operationId": "change_role_api_v1_users__user_id__role_patch",
         "security": [
           {
             "HTTPBearer": []
@@ -829,7 +880,7 @@
             }
           },
           "403": {
-            "description": "Admin role required, or self-modification",
+            "description": "Admin role required",
             "content": {
               "application/json": {
                 "schema": {
@@ -858,7 +909,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
       }
     },
     "/api/v1/users/{user_id}/status": {
@@ -866,9 +918,8 @@
         "tags": [
           "Users"
         ],
-        "summary": "Suspend, reactivate or deactivate a user",
-        "description": "Deactivating or suspending an account revokes all of its sessions.",
-        "operationId": "change_user_status_api_v1_users__user_id__status_patch",
+        "summary": "Suspend, reactivate or deactivate",
+        "operationId": "change_status_api_v1_users__user_id__status_patch",
         "security": [
           {
             "HTTPBearer": []
@@ -908,7 +959,7 @@
             }
           },
           "403": {
-            "description": "Admin role required, or self-modification",
+            "description": "Admin role required",
             "content": {
               "application/json": {
                 "schema": {
@@ -937,7 +988,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
       }
     },
     "/api/v1/users/{user_id}/restore": {
@@ -1005,7 +1057,241 @@
               }
             }
           }
-        }
+        },
+        "x-service": "identity"
+      }
+    },
+    "/api/v1/users/{user_id}/warehouses": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Warehouses an operator is scoped to",
+        "operationId": "list_assignments_api_v1_users__user_id__warehouses_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WarehouseAssignmentRead"
+                  },
+                  "title": "Response List Assignments Api V1 Users  User Id  Warehouses Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "identity"
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Scope an operator to a warehouse",
+        "description": "The warehouse id is checked with the Warehouse service — there is no\nforeign key across databases. The operator's sessions are revoked so their\nnext token carries the new scope.",
+        "operationId": "assign_warehouse_api_v1_users__user_id__warehouses_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarehouseAssignmentCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseAssignmentRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "identity"
+      }
+    },
+    "/api/v1/users/{user_id}/warehouses/{warehouse_id}": {
+      "delete": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Remove an operator's warehouse scope",
+        "operationId": "unassign_warehouse_api_v1_users__user_id__warehouses__warehouse_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "warehouse_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Warehouse Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Admin role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "identity"
       }
     },
     "/api/v1/warehouses/locations": {
@@ -1013,8 +1299,8 @@
         "tags": [
           "Warehouses"
         ],
-        "summary": "Navigation view of active warehouses",
-        "description": "Everything a courier needs to reach the dock \u2014 address, coordinates,\nentrance, geofence, phone and opening hours \u2014 and nothing about capacity,\nthroughput or internal layout.",
+        "summary": "Courier navigation view",
+        "description": "Address, coordinates, entrance, geofence, phone and hours of active\nfacilities — nothing about capacity, contacts or layout.",
         "operationId": "list_locations_api_v1_warehouses_locations_get",
         "security": [
           {
@@ -1065,7 +1351,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses": {
@@ -1074,7 +1361,7 @@
           "Warehouses"
         ],
         "summary": "List warehouses",
-        "description": "Admins see every facility; operators see only those assigned to them.",
+        "description": "Operators see only the warehouses in their token's scope.",
         "operationId": "list_warehouses_api_v1_warehouses_get",
         "security": [
           {
@@ -1183,6 +1470,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not permitted for your role or warehouse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1193,18 +1490,39 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       },
       "post": {
         "tags": [
           "Warehouses"
         ],
         "summary": "Create a warehouse",
-        "description": "Zones and opening hours may be supplied inline, so a facility can be\ncreated ready to use.",
         "operationId": "create_warehouse_api_v1_warehouses_post",
         "security": [
           {
             "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Send a unique value to make retries safe. A repeat with the same key and body returns the original response instead of acting twice.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Send a unique value to make retries safe. A repeat with the same key and body returns the original response instead of acting twice."
           }
         ],
         "requestBody": {
@@ -1239,14 +1557,14 @@
             }
           },
           "409": {
-            "description": "Code already in use",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "422": {
             "description": "Validation Error",
@@ -1258,7 +1576,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses/summary": {
@@ -1266,7 +1585,7 @@
         "tags": [
           "Warehouses"
         ],
-        "summary": "Compact facility list for support staff",
+        "summary": "Compact facility list",
         "operationId": "list_summary_api_v1_warehouses_summary_get",
         "responses": {
           "200": {
@@ -1288,7 +1607,8 @@
           {
             "HTTPBearer": []
           }
-        ]
+        ],
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses/{warehouse_id}": {
@@ -1296,7 +1616,7 @@
         "tags": [
           "Warehouses"
         ],
-        "summary": "Fetch a warehouse with zones and schedule",
+        "summary": "Fetch a warehouse",
         "operationId": "get_warehouse_api_v1_warehouses__warehouse_id__get",
         "security": [
           {
@@ -1346,7 +1666,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       },
       "patch": {
         "tags": [
@@ -1422,14 +1743,14 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       },
       "delete": {
         "tags": [
           "Warehouses"
         ],
-        "summary": "Deactivate a warehouse",
-        "description": "Soft delete: shipments reference the origin warehouse by id with no\nforeign key, so a hard delete would orphan historical records.",
+        "summary": "Deactivate (soft delete) a warehouse",
         "operationId": "delete_warehouse_api_v1_warehouses__warehouse_id__delete",
         "security": [
           {
@@ -1482,7 +1803,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses/{warehouse_id}/status": {
@@ -1491,7 +1813,7 @@
           "Warehouses"
         ],
         "summary": "Change operational status",
-        "description": "Only `active` facilities may originate shipments, so this stops dispatch.",
+        "description": "Only `active` facilities may originate shipments. Shipment and Inventory\nlearn about the change from the `warehouse.status_changed` event.",
         "operationId": "change_status_api_v1_warehouses__warehouse_id__status_patch",
         "security": [
           {
@@ -1561,7 +1883,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses/{warehouse_id}/restore": {
@@ -1570,7 +1893,6 @@
           "Warehouses"
         ],
         "summary": "Restore a soft-deleted warehouse",
-        "description": "Possible precisely because deletion is soft.",
         "operationId": "restore_warehouse_api_v1_warehouses__warehouse_id__restore_post",
         "security": [
           {
@@ -1630,7 +1952,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses/{warehouse_id}/zones": {
@@ -1699,14 +2022,14 @@
             }
           },
           "409": {
-            "description": "Duplicate zone code",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "422": {
             "description": "Validation Error",
@@ -1718,7 +2041,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses/zones/{zone_id}": {
@@ -1777,14 +2101,14 @@
             }
           },
           "404": {
-            "description": "Zone not found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Not Found"
           },
           "422": {
             "description": "Validation Error",
@@ -1796,7 +2120,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       },
       "delete": {
         "tags": [
@@ -1836,14 +2161,14 @@
             }
           },
           "404": {
-            "description": "Zone not found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
+            },
+            "description": "Not Found"
           },
           "422": {
             "description": "Validation Error",
@@ -1855,7 +2180,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       }
     },
     "/api/v1/warehouses/{warehouse_id}/operating-hours": {
@@ -1917,14 +2243,14 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
       },
       "put": {
         "tags": [
           "Warehouses"
         ],
         "summary": "Replace the weekly schedule",
-        "description": "PUT, not PATCH: a partial schedule is ambiguous \u2014 an absent day could\nmean \"unchanged\" or \"closed\" \u2014 so the full week is always supplied.",
         "operationId": "replace_hours_api_v1_warehouses__warehouse_id__operating_hours_put",
         "security": [
           {
@@ -1998,7 +2324,1003 @@
               }
             }
           }
-        }
+        },
+        "x-service": "warehouse"
+      }
+    },
+    "/api/v1/inventory/reservations": {
+      "post": {
+        "tags": [
+          "Reservations"
+        ],
+        "summary": "Hold stock for a shipment (all lines or none)",
+        "description": "Rows are locked in id order, so concurrent requests for the same units\nserialise: the first wins and the second gets `insufficient_stock`. The\nhold stays *unconfirmed* until `shipment.created` arrives, and returns the\nSKU facts Shipment snapshots onto its items.",
+        "operationId": "reserve_api_v1_inventory_reservations_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationResult"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Already held: the existing hold is returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown warehouse or SKU",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "insufficient_stock, warehouse_not_operational, reservation_mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      },
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "List stock holds",
+        "operationId": "list_reservations_api_v1_inventory_reservations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shipment Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReservationStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReservationRead"
+                  },
+                  "title": "Response List Reservations Api V1 Inventory Reservations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/inventory/reservations/{shipment_id}/confirm": {
+      "post": {
+        "tags": [
+          "Reservations"
+        ],
+        "summary": "Confirm a hold (normally driven by shipment.created)",
+        "operationId": "confirm_api_v1_inventory_reservations__shipment_id__confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Confirm Api V1 Inventory Reservations  Shipment Id  Confirm Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/inventory/reservations/{shipment_id}/commit": {
+      "post": {
+        "tags": [
+          "Reservations"
+        ],
+        "summary": "Commit held stock (dispatch)",
+        "operationId": "commit_api_v1_inventory_reservations__shipment_id__commit_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Commit Api V1 Inventory Reservations  Shipment Id  Commit Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/inventory/reservations/{shipment_id}/release": {
+      "post": {
+        "tags": [
+          "Reservations"
+        ],
+        "summary": "Release held stock",
+        "operationId": "release_api_v1_inventory_reservations__shipment_id__release_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Release Api V1 Inventory Reservations  Shipment Id  Release Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/inventory": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "List stock levels",
+        "description": "Operators see only their warehouses. `available_qty` is a generated column.",
+        "operationId": "list_stock_api_v1_inventory_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Warehouse Id"
+            }
+          },
+          {
+            "name": "sku_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sku Id"
+            }
+          },
+          {
+            "name": "below_reorder_level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Below Reorder Level"
+            }
+          },
+          {
+            "name": "in_stock_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "In Stock Only"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_InventoryItemRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      },
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Open a stock position",
+        "operationId": "open_position_api_v1_inventory_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryItemCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItemRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for your role or warehouse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/inventory/{item_id}/adjustments": {
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Adjust on-hand stock (receipt, count, write-off)",
+        "description": "Every change leaves a ledger entry. A result below the held quantity is refused.",
+        "operationId": "adjust_api_v1_inventory__item_id__adjustments_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockAdjustment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItemRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for your role or warehouse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/inventory/{item_id}/movements": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Ledger for one position",
+        "operationId": "movements_api_v1_inventory__item_id__movements_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StockMovementRead"
+                  },
+                  "title": "Response Movements Api V1 Inventory  Item Id  Movements Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/inventory/release-expired": {
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Release lapsed unconfirmed holds",
+        "description": "Operators can only sweep their own warehouses — a `warehouse_id` outside\ntheir scope is refused (the monolith let it through).",
+        "operationId": "release_expired_api_v1_inventory_release_expired_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Warehouse Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Release Expired Api V1 Inventory Release Expired Post"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for your role or warehouse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/skus": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "List SKUs",
+        "operationId": "list_skus_api_v1_skus_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "active_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Active Only"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SkuRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      },
+      "post": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Create a SKU",
+        "operationId": "create_sku_api_v1_skus_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkuCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkuRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      }
+    },
+    "/api/v1/skus/{sku_id}": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Fetch a SKU",
+        "operationId": "get_sku_api_v1_skus__sku_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sku_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Sku Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkuRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
+      },
+      "patch": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Update a SKU",
+        "operationId": "update_sku_api_v1_skus__sku_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sku_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Sku Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkuUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkuRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "inventory"
       }
     },
     "/api/v1/shipments": {
@@ -2006,8 +3328,8 @@
         "tags": [
           "Shipments"
         ],
-        "summary": "Create a shipment",
-        "description": "Creates in `created` status and **holds the stock**.\n\nThe hold is taken in the same transaction, under a row lock, so two requests\nfor the same units serialise: the first wins and the second is refused with\n`insufficient_stock` rather than both being accepted and one failing later.\nHolds expire after the configured window if the shipment is never dispatched.\n\nThe reference number comes from a Postgres sequence, so concurrent creates\ncannot collide.",
+        "summary": "Create a shipment and hold its stock",
+        "description": "Reserves stock with Inventory first (one synchronous call), then records\nthe shipment and `shipment.created` in one transaction. With an\n`Idempotency-Key`, a retry returns the original response and reuses the\nsame hold.",
         "operationId": "create_shipment_api_v1_shipments_post",
         "security": [
           {
@@ -2029,10 +3351,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Send a unique value to make retries safe. A repeat with the same key returns the original response instead of creating a second shipment.",
+              "description": "Send a unique value to make retries safe. A repeat with the same key and body returns the original response instead of acting twice.",
               "title": "Idempotency-Key"
             },
-            "description": "Send a unique value to make retries safe. A repeat with the same key returns the original response instead of creating a second shipment."
+            "description": "Send a unique value to make retries safe. A repeat with the same key and body returns the original response instead of acting twice."
           }
         ],
         "requestBody": {
@@ -2077,7 +3399,17 @@
             }
           },
           "409": {
-            "description": "Warehouse not active, or SKU inactive",
+            "description": "insufficient_stock or warehouse_not_operational",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Inventory unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -2096,14 +3428,15 @@
               }
             }
           }
-        }
+        },
+        "x-service": "shipment"
       },
       "get": {
         "tags": [
           "Shipments"
         ],
         "summary": "List shipments",
-        "description": "Results are scoped to the caller: operators see their warehouses'\nshipments, couriers only their own assignments.",
+        "description": "Row-scoped: operators see their warehouses, couriers their assignments.\nServed entirely from this service's database — no calls to other services.",
         "operationId": "list_shipments_api_v1_shipments_get",
         "security": [
           {
@@ -2194,6 +3527,23 @@
             }
           },
           {
+            "name": "created_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created By"
+            }
+          },
+          {
             "name": "city",
             "in": "query",
             "required": false,
@@ -2274,10 +3624,8 @@
                   "type": "null"
                 }
               ],
-              "description": "Past promised delivery and not yet delivered.",
               "title": "Overdue Only"
-            },
-            "description": "Past promised delivery and not yet delivered."
+            }
           },
           {
             "name": "limit",
@@ -2324,7 +3672,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "shipment"
       }
     },
     "/api/v1/shipments/{shipment_id}": {
@@ -2382,14 +3731,14 @@
               }
             }
           }
-        }
+        },
+        "x-service": "shipment"
       },
       "patch": {
         "tags": [
           "Shipments"
         ],
         "summary": "Update a shipment before dispatch",
-        "description": "Editable only while `created`, `ready_for_dispatch` or `dispatch_failed` \u2014\nchanging contents after dispatch would misrepresent what was sent.",
         "operationId": "update_shipment_api_v1_shipments__shipment_id__patch",
         "security": [
           {
@@ -2450,7 +3799,7 @@
             }
           },
           "409": {
-            "description": "Illegal state transition or shipment locked",
+            "description": "Illegal transition, concurrent update, or no stock",
             "content": {
               "application/json": {
                 "schema": {
@@ -2469,7 +3818,71 @@
               }
             }
           }
-        }
+        },
+        "x-service": "shipment"
+      }
+    },
+    "/api/v1/shipments/{shipment_id}/history": {
+      "get": {
+        "tags": [
+          "Shipments"
+        ],
+        "summary": "Audit trail of status changes",
+        "operationId": "get_history_api_v1_shipments__shipment_id__history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StatusHistoryRead"
+                  },
+                  "title": "Response Get History Api V1 Shipments  Shipment Id  History Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Shipment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "shipment"
       }
     },
     "/api/v1/shipments/{shipment_id}/status": {
@@ -2478,7 +3891,7 @@
           "Shipments"
         ],
         "summary": "Move a shipment to the next state",
-        "description": "Validated against the state machine, which is the single declaration of\nwhat may follow what. An illegal transition is a 409, never a silent write.\n\nEach role owns part of the lifecycle: warehouse operators mark shipments\nready, couriers drive the custody states, support initiates returns.",
+        "description": "Validated against the state machine; every transition writes an audit\nrow and a `shipment.status_changed` event. Concurrent changes to the same\nshipment cannot both apply: the loser gets 409 `concurrent_update`.",
         "operationId": "change_status_api_v1_shipments__shipment_id__status_patch",
         "security": [
           {
@@ -2495,6 +3908,24 @@
               "format": "uuid",
               "title": "Shipment Id"
             }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Expected version (optimistic lock)",
+              "title": "Version"
+            },
+            "description": "Expected version (optimistic lock)"
           }
         ],
         "requestBody": {
@@ -2539,7 +3970,7 @@
             }
           },
           "409": {
-            "description": "Illegal state transition or shipment locked",
+            "description": "Illegal transition, concurrent update, or no stock",
             "content": {
               "application/json": {
                 "schema": {
@@ -2558,7 +3989,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "shipment"
       }
     },
     "/api/v1/shipments/{shipment_id}/cancel": {
@@ -2566,8 +3998,8 @@
         "tags": [
           "Shipments"
         ],
-        "summary": "Cancel a shipment",
-        "description": "Only possible before the courier takes custody.",
+        "summary": "Cancel a shipment (before dispatch only)",
+        "description": "Inventory releases the hold when it receives the status event.",
         "operationId": "cancel_shipment_api_v1_shipments__shipment_id__cancel_post",
         "security": [
           {
@@ -2628,7 +4060,7 @@
             }
           },
           "409": {
-            "description": "Illegal state transition or shipment locked",
+            "description": "Illegal transition, concurrent update, or no stock",
             "content": {
               "application/json": {
                 "schema": {
@@ -2647,7 +4079,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "shipment"
       }
     },
     "/api/v1/shipments/{shipment_id}/packages": {
@@ -2655,8 +4088,7 @@
         "tags": [
           "Shipments"
         ],
-        "summary": "Add a parcel to a shipment",
-        "description": "Packing is the originating warehouse's job. The barcode is issued by the\nsystem, since it is what scanners and courier devices read.",
+        "summary": "Add a parcel",
         "operationId": "add_package_api_v1_shipments__shipment_id__packages_post",
         "security": [
           {
@@ -2717,7 +4149,7 @@
             }
           },
           "409": {
-            "description": "Illegal state transition or shipment locked",
+            "description": "Illegal transition, concurrent update, or no stock",
             "content": {
               "application/json": {
                 "schema": {
@@ -2736,7 +4168,8 @@
               }
             }
           }
-        }
+        },
+        "x-service": "shipment"
       }
     },
     "/api/v1/shipments/packages/{package_id}": {
@@ -2795,144 +4228,14 @@
             }
           },
           "404": {
-            "description": "Package not found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "List stock levels",
-        "description": "`available_qty` is a generated column \u2014 on hand minus held \u2014 so it can\nnever disagree with its inputs.",
-        "operationId": "list_stock_api_v1_inventory_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "warehouse_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Warehouse Id"
-            }
-          },
-          {
-            "name": "sku_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Sku Id"
-            }
-          },
-          {
-            "name": "below_reorder_level",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only positions at or under their reorder threshold.",
-              "title": "Below Reorder Level"
             },
-            "description": "Only positions at or under their reorder threshold."
-          },
-          {
-            "name": "in_stock_only",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "In Stock Only"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 50,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_InventoryItemRead_"
-                }
-              }
-            }
+            "description": "Not Found"
           },
           "422": {
             "description": "Validation Error",
@@ -2944,163 +4247,8 @@
               }
             }
           }
-        }
-      }
-    },
-    "/api/v1/inventory/reservations": {
-      "get": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "List stock holds",
-        "description": "Shows what stock is held, for whom, and when the hold lapses.",
-        "operationId": "list_reservations_api_v1_inventory_reservations_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "shipment_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Shipment Id"
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/ReservationStatus"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 50,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ReservationRead"
-                  },
-                  "title": "Response List Reservations Api V1 Inventory Reservations Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/inventory/release-expired": {
-      "post": {
-        "tags": [
-          "Inventory"
-        ],
-        "summary": "Release stock holds that have lapsed",
-        "description": "Expired holds on contended stock are released automatically when someone\ntries to reserve it. This sweeps the rest, and is what Celery beat will call\non a schedule in Phase 3 \u2014 correctness does not depend on it running.",
-        "operationId": "release_expired_api_v1_inventory_release_expired_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "warehouse_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Warehouse Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Release Expired Api V1 Inventory Release Expired Post"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not permitted for your role or warehouse",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
+        },
+        "x-service": "shipment"
       }
     }
   },
@@ -3419,6 +4567,57 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "InventoryItemCreate": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          },
+          "sku_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sku Id"
+          },
+          "zone_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zone Id"
+          },
+          "on_hand_qty": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "On Hand Qty",
+            "default": 0
+          },
+          "reorder_level": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Reorder Level",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "sku_id"
+        ],
+        "title": "InventoryItemCreate",
+        "description": "Opens a stock position for a SKU at a warehouse.",
+        "example": {
+          "on_hand_qty": 500,
+          "reorder_level": 50,
+          "sku_id": "00000000-0000-0000-0000-000000000000",
+          "warehouse_id": "00000000-0000-0000-0000-000000000000"
+        }
+      },
       "InventoryItemRead": {
         "properties": {
           "id": {
@@ -3551,8 +4750,7 @@
           "expires_in",
           "user"
         ],
-        "title": "LoginResponse",
-        "description": "Tokens plus the profile, so the client avoids an immediate second call."
+        "title": "LoginResponse"
       },
       "LogoutRequest": {
         "properties": {
@@ -3864,8 +5062,7 @@
           "labelled",
           "dispatched"
         ],
-        "title": "PackageStatus",
-        "description": "Packing progress for one parcel."
+        "title": "PackageStatus"
       },
       "PackageUpdate": {
         "properties": {
@@ -3999,6 +5196,38 @@
         ],
         "title": "Page[ShipmentSummary]"
       },
+      "Page_SkuRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SkuRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total matching records, ignoring pagination."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[SkuRead]"
+      },
       "Page_UserRead_": {
         "properties": {
           "items": {
@@ -4075,8 +5304,7 @@
             "type": "string",
             "maxLength": 128,
             "minLength": 12,
-            "title": "New Password",
-            "description": "At least 12 characters, with lower case, upper case, a digit and a symbol."
+            "title": "New Password"
           }
         },
         "type": "object",
@@ -4084,8 +5312,7 @@
           "current_password",
           "new_password"
         ],
-        "title": "PasswordChange",
-        "description": "Authenticated password change. Revokes all other sessions on success."
+        "title": "PasswordChange"
       },
       "Problem": {
         "properties": {
@@ -4123,7 +5350,7 @@
           "message"
         ],
         "title": "Problem",
-        "description": "RFC 7807-style error body used for every non-2xx response."
+        "description": "Error body used for every non-2xx response, by every service."
       },
       "RefreshRequest": {
         "properties": {
@@ -4138,6 +5365,39 @@
           "refresh_token"
         ],
         "title": "RefreshRequest"
+      },
+      "ReleaseRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Reason",
+            "default": "Released by request"
+          }
+        },
+        "type": "object",
+        "title": "ReleaseRequest"
+      },
+      "ReservationLineRequest": {
+        "properties": {
+          "sku_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sku Id"
+          },
+          "quantity": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sku_id",
+          "quantity"
+        ],
+        "title": "ReservationLineRequest"
       },
       "ReservationRead": {
         "properties": {
@@ -4174,9 +5434,28 @@
             "$ref": "#/components/schemas/ReservationStatus"
           },
           "expires_at": {
-            "type": "string",
-            "format": "date-time",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Expires At"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
           },
           "committed_at": {
             "anyOf": [
@@ -4228,10 +5507,89 @@
           "sku_id",
           "quantity",
           "status",
-          "expires_at",
           "created_at"
         ],
         "title": "ReservationRead"
+      },
+      "ReservationRequest": {
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReservationLineRequest"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shipment_id",
+          "warehouse_id",
+          "lines"
+        ],
+        "title": "ReservationRequest",
+        "description": "Hold stock for one shipment. ``shipment_id`` is the idempotency key:\nrepeating the same request returns the existing hold."
+      },
+      "ReservationResult": {
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReservationStatus"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "title": "Confirmed"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReservedLine"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shipment_id",
+          "warehouse_id",
+          "status",
+          "confirmed",
+          "lines"
+        ],
+        "title": "ReservationResult"
       },
       "ReservationStatus": {
         "type": "string",
@@ -4240,8 +5598,59 @@
           "committed",
           "released"
         ],
-        "title": "ReservationStatus",
-        "description": "Lifecycle of an inventory hold."
+        "title": "ReservationStatus"
+      },
+      "ReservedLine": {
+        "properties": {
+          "sku_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sku Id"
+          },
+          "quantity": {
+            "type": "integer",
+            "title": "Quantity"
+          },
+          "sku_code": {
+            "type": "string",
+            "title": "Sku Code"
+          },
+          "sku_name": {
+            "type": "string",
+            "title": "Sku Name"
+          },
+          "unit_weight_g": {
+            "type": "integer",
+            "title": "Unit Weight G"
+          },
+          "unit_value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Value"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sku_id",
+          "quantity",
+          "sku_code",
+          "sku_name",
+          "unit_weight_g",
+          "currency"
+        ],
+        "title": "ReservedLine",
+        "description": "A held line plus the SKU facts Shipment snapshots onto its items."
       },
       "ServiceLevel": {
         "type": "string",
@@ -4251,8 +5660,7 @@
           "express",
           "same_day"
         ],
-        "title": "ServiceLevel",
-        "description": "Commercial promise, which drives the delivery deadline."
+        "title": "ServiceLevel"
       },
       "SessionRead": {
         "properties": {
@@ -4300,8 +5708,7 @@
           "created_at",
           "expires_at"
         ],
-        "title": "SessionRead",
-        "description": "An active refresh-token session, for the 'where am I logged in' view."
+        "title": "SessionRead"
       },
       "ShipmentCancel": {
         "properties": {
@@ -4530,8 +5937,7 @@
           "high",
           "critical"
         ],
-        "title": "ShipmentPriority",
-        "description": "Operational override, independent of what the customer paid for.\n\nA standard shipment already late may be raised to CRITICAL; this is what\ndispatch prioritisation sorts on."
+        "title": "ShipmentPriority"
       },
       "ShipmentRead": {
         "properties": {
@@ -4568,6 +5974,10 @@
             "type": "string",
             "format": "uuid",
             "title": "Origin Warehouse Id"
+          },
+          "origin_warehouse_code": {
+            "type": "string",
+            "title": "Origin Warehouse Code"
           },
           "courier_id": {
             "anyOf": [
@@ -4738,6 +6148,7 @@
           "service_level",
           "priority",
           "origin_warehouse_id",
+          "origin_warehouse_code",
           "total_weight_g",
           "created_at",
           "destination_address",
@@ -4766,8 +6177,7 @@
           "returned",
           "cancelled"
         ],
-        "title": "ShipmentStatus",
-        "description": "Lifecycle of a shipment. Transitions are declared once, in\n``core.shipment_state_machine``."
+        "title": "ShipmentStatus"
       },
       "ShipmentStatusUpdate": {
         "properties": {
@@ -4829,6 +6239,10 @@
             "type": "string",
             "format": "uuid",
             "title": "Origin Warehouse Id"
+          },
+          "origin_warehouse_code": {
+            "type": "string",
+            "title": "Origin Warehouse Code"
           },
           "courier_id": {
             "anyOf": [
@@ -4896,11 +6310,12 @@
           "service_level",
           "priority",
           "origin_warehouse_id",
+          "origin_warehouse_code",
           "total_weight_g",
           "created_at"
         ],
         "title": "ShipmentSummary",
-        "description": "Row shape for listings and dashboards \u2014 no nested collections."
+        "description": "Row shape for listings and dashboards — no nested collections."
       },
       "ShipmentUpdate": {
         "properties": {
@@ -4981,6 +6396,635 @@
         "title": "ShipmentUpdate",
         "description": "Editable only before dispatch.\n\nStatus is absent by design: transitions go through dedicated endpoints so\neach can enforce its own rules and side effects."
       },
+      "SkuCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "weight_g": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Weight G",
+            "description": "Unit weight in grams."
+          },
+          "length_mm": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm"
+          },
+          "width_mm": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Width Mm"
+          },
+          "height_mm": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Height Mm"
+          },
+          "is_fragile": {
+            "type": "boolean",
+            "title": "Is Fragile",
+            "default": false
+          },
+          "is_hazmat": {
+            "type": "boolean",
+            "title": "Is Hazmat",
+            "default": false
+          },
+          "requires_cold_chain": {
+            "type": "boolean",
+            "title": "Requires Cold Chain",
+            "default": false
+          },
+          "unit_value": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Value"
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "default": "PKR"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[A-Za-z0-9\\-_]+$",
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "weight_g",
+          "length_mm",
+          "width_mm",
+          "height_mm",
+          "code"
+        ],
+        "title": "SkuCreate",
+        "example": {
+          "category": "electronics",
+          "code": "SKU-ELEC-0042",
+          "currency": "PKR",
+          "height_mm": 35,
+          "is_fragile": true,
+          "length_mm": 440,
+          "name": "Wireless Keyboard",
+          "unit_value": "4500.00",
+          "weight_g": 650,
+          "width_mm": 140
+        }
+      },
+      "SkuRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "weight_g": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Weight G",
+            "description": "Unit weight in grams."
+          },
+          "length_mm": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm"
+          },
+          "width_mm": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Width Mm"
+          },
+          "height_mm": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Height Mm"
+          },
+          "is_fragile": {
+            "type": "boolean",
+            "title": "Is Fragile",
+            "default": false
+          },
+          "is_hazmat": {
+            "type": "boolean",
+            "title": "Is Hazmat",
+            "default": false
+          },
+          "requires_cold_chain": {
+            "type": "boolean",
+            "title": "Requires Cold Chain",
+            "default": false
+          },
+          "unit_value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Value"
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "default": "PKR"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "weight_g",
+          "length_mm",
+          "width_mm",
+          "height_mm",
+          "id",
+          "code",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SkuRead"
+      },
+      "SkuUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "weight_g": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight G"
+          },
+          "length_mm": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Mm"
+          },
+          "width_mm": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width Mm"
+          },
+          "height_mm": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Mm"
+          },
+          "is_fragile": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Fragile"
+          },
+          "is_hazmat": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Hazmat"
+          },
+          "requires_cold_chain": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires Cold Chain"
+          },
+          "unit_value": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Value"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "SkuUpdate",
+        "description": "Partial update. ``code`` is immutable — it is referenced by shipped items."
+      },
+      "StatusHistoryRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "to_status": {
+            "type": "string",
+            "title": "To Status"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "to_status",
+          "occurred_at"
+        ],
+        "title": "StatusHistoryRead"
+      },
+      "StockAdjustment": {
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/StockMovementType"
+          },
+          "quantity_delta": {
+            "type": "integer",
+            "title": "Quantity Delta",
+            "description": "Signed. Positive adds stock, negative removes it. Never zero."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "quantity_delta"
+        ],
+        "title": "StockAdjustment",
+        "description": "A deliberate correction to on-hand stock: a count, receipt or write-off.",
+        "example": {
+          "notes": "PO-2026-0912 received",
+          "quantity_delta": 250,
+          "type": "inbound_receipt"
+        }
+      },
+      "StockMovementRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "inventory_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Inventory Item Id"
+          },
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          },
+          "sku_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sku Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/StockMovementType"
+          },
+          "quantity_delta": {
+            "type": "integer",
+            "title": "Quantity Delta"
+          },
+          "resulting_on_hand": {
+            "type": "integer",
+            "title": "Resulting On Hand"
+          },
+          "reference_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Type"
+          },
+          "reference_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Id"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "inventory_item_id",
+          "warehouse_id",
+          "sku_id",
+          "type",
+          "quantity_delta",
+          "resulting_on_hand",
+          "occurred_at"
+        ],
+        "title": "StockMovementRead"
+      },
+      "StockMovementType": {
+        "type": "string",
+        "enum": [
+          "inbound_receipt",
+          "outbound_dispatch",
+          "return_receipt",
+          "adjustment",
+          "damage_write_off",
+          "transfer_in",
+          "transfer_out"
+        ],
+        "title": "StockMovementType"
+      },
       "TokenPair": {
         "properties": {
           "access_token": {
@@ -5008,16 +7052,14 @@
           "refresh_token",
           "expires_in"
         ],
-        "title": "TokenPair",
-        "description": "Issued on login and on refresh. Refresh tokens rotate on every use."
+        "title": "TokenPair"
       },
       "UserCreate": {
         "properties": {
           "email": {
             "type": "string",
             "format": "email",
-            "title": "Email",
-            "description": "Login identifier. Stored lowercased."
+            "title": "Email"
           },
           "full_name": {
             "type": "string",
@@ -5036,15 +7078,13 @@
                 "type": "null"
               }
             ],
-            "title": "Phone",
-            "description": "E.164 preferred. Used for courier and support contact."
+            "title": "Phone"
           },
           "password": {
             "type": "string",
             "maxLength": 128,
             "minLength": 12,
-            "title": "Password",
-            "description": "At least 12 characters, with lower case, upper case, a digit and a symbol."
+            "title": "Password"
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
@@ -5058,7 +7098,6 @@
           "role"
         ],
         "title": "UserCreate",
-        "description": "Admin-driven user registration.",
         "example": {
           "email": "ops.lead@transfleet.com",
           "full_name": "Ayesha Khan",
@@ -5072,8 +7111,7 @@
           "email": {
             "type": "string",
             "format": "email",
-            "title": "Email",
-            "description": "Login identifier. Stored lowercased."
+            "title": "Email"
           },
           "full_name": {
             "type": "string",
@@ -5092,8 +7130,7 @@
                 "type": "null"
               }
             ],
-            "title": "Phone",
-            "description": "E.164 preferred. Used for courier and support contact."
+            "title": "Phone"
           },
           "id": {
             "type": "string",
@@ -5105,6 +7142,18 @@
           },
           "status": {
             "$ref": "#/components/schemas/UserStatus"
+          },
+          "courier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courier Id"
           },
           "last_login_at": {
             "anyOf": [
@@ -5139,8 +7188,7 @@
           "created_at",
           "updated_at"
         ],
-        "title": "UserRead",
-        "description": "Full representation returned to admins and to the user themselves."
+        "title": "UserRead"
       },
       "UserRole": {
         "type": "string",
@@ -5150,8 +7198,7 @@
           "warehouse_operator",
           "courier"
         ],
-        "title": "UserRole",
-        "description": "Roles defined by the SmartLogistics access model."
+        "title": "UserRole"
       },
       "UserRoleUpdate": {
         "properties": {
@@ -5175,8 +7222,7 @@
         "required": [
           "role"
         ],
-        "title": "UserRoleUpdate",
-        "description": "Privilege change \u2014 admin only, always audited."
+        "title": "UserRoleUpdate"
       },
       "UserStatus": {
         "type": "string",
@@ -5186,8 +7232,7 @@
           "suspended",
           "deactivated"
         ],
-        "title": "UserStatus",
-        "description": "Account lifecycle state, independent of authentication outcome."
+        "title": "UserStatus"
       },
       "UserStatusUpdate": {
         "properties": {
@@ -5211,8 +7256,7 @@
         "required": [
           "status"
         ],
-        "title": "UserStatusUpdate",
-        "description": "Suspend, reactivate or deactivate an account \u2014 admin only, always audited."
+        "title": "UserStatusUpdate"
       },
       "UserUpdate": {
         "properties": {
@@ -5244,8 +7288,7 @@
           }
         },
         "type": "object",
-        "title": "UserUpdate",
-        "description": "Self-service profile update. Role and status are deliberately absent."
+        "title": "UserUpdate"
       },
       "ValidationError": {
         "properties": {
@@ -5286,6 +7329,52 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WarehouseAssignmentCreate": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id"
+        ],
+        "title": "WarehouseAssignmentCreate"
+      },
+      "WarehouseAssignmentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "warehouse_id",
+          "created_at"
+        ],
+        "title": "WarehouseAssignmentRead"
       },
       "WarehouseCreate": {
         "properties": {
@@ -6278,7 +8367,7 @@
           "inactive"
         ],
         "title": "WarehouseStatus",
-        "description": "Operational state. Only ACTIVE facilities accept dispatch."
+        "description": "Only ACTIVE facilities may originate shipments or have stock reserved."
       },
       "WarehouseStatusUpdate": {
         "properties": {
@@ -6347,8 +8436,7 @@
           "regional_depot",
           "returns_center"
         ],
-        "title": "WarehouseType",
-        "description": "What role a facility plays in the network."
+        "title": "WarehouseType"
       },
       "WarehouseUpdate": {
         "properties": {
@@ -6771,7 +8859,7 @@
         },
         "type": "object",
         "title": "WarehouseZoneUpdate",
-        "description": "Partial update. ``code`` is immutable \u2014 it appears on physical signage."
+        "description": "Partial update. ``code`` is immutable — it appears on physical signage."
       },
       "Weekday": {
         "type": "integer",
@@ -6784,8 +8872,7 @@
           6,
           7
         ],
-        "title": "Weekday",
-        "description": "ISO-8601 day numbering, Monday = 1.\n\nNot backed by a Postgres enum \u2014 ``warehouse_operating_hours.day_of_week``\nis a plain ``SmallInteger``, since the value is a number the database can\nrange-check (1 to 7) rather than a fixed vocabulary of labels."
+        "title": "Weekday"
       },
       "WeeklyScheduleUpdate": {
         "properties": {
@@ -6804,7 +8891,7 @@
           "days"
         ],
         "title": "WeeklyScheduleUpdate",
-        "description": "Replaces the whole week at once.\n\nPartial edits of a schedule are ambiguous \u2014 an absent day could mean\n'unchanged' or 'closed' \u2014 so the full week is always supplied."
+        "description": "Replaces the whole week at once.\n\nPartial edits of a schedule are ambiguous — an absent day could mean\n'unchanged' or 'closed' — so the full week is always supplied."
       },
       "ZoneType": {
         "type": "string",
@@ -6818,42 +8905,15 @@
           "returns",
           "quarantine"
         ],
-        "title": "ZoneType",
-        "description": "Functional area within a warehouse, following goods flow."
+        "title": "ZoneType"
       }
     },
     "securitySchemes": {
       "HTTPBearer": {
         "type": "http",
-        "description": "JWT access token",
+        "description": "Identity-issued RS256 access token",
         "scheme": "bearer"
       }
     }
-  },
-  "tags": [
-    {
-      "name": "Authentication",
-      "description": "Login, token refresh, logout and sessions."
-    },
-    {
-      "name": "Users",
-      "description": "Account management and role administration."
-    },
-    {
-      "name": "Warehouses",
-      "description": "Facilities, zones and operating hours. Operators are scoped to their own."
-    },
-    {
-      "name": "Inventory",
-      "description": "Stock levels and holds. Reservations are driven by the shipment lifecycle."
-    },
-    {
-      "name": "Shipments",
-      "description": "Shipment lifecycle, packing and state transitions. Results are row-scoped: operators see their warehouses, couriers see their own assignments."
-    },
-    {
-      "name": "Health",
-      "description": "Liveness and readiness probes."
-    }
-  ]
+  }
 }

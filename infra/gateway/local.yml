@@ -1,0 +1,65 @@
+# Gateway routes for local development (`./dev.sh infra up` + `./dev.sh start`).
+#
+# The services run on your machine, not in Docker, so this Traefik instance
+# (`gateway-local` in docker-compose.yml) forwards to host.docker.internal on
+# the ports `./dev.sh start` uses. Paths match the Docker stack's gateway
+# labels exactly, so http://localhost:8000 behaves the same in both modes.
+
+http:
+  routers:
+    identity:
+      rule: PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/users`) || Path(`/.well-known/jwks.json`)
+      service: identity
+    warehouse:
+      rule: PathPrefix(`/api/v1/warehouses`)
+      service: warehouse
+    inventory:
+      rule: PathPrefix(`/api/v1/inventory`) || PathPrefix(`/api/v1/skus`)
+      service: inventory
+    shipment:
+      rule: PathPrefix(`/api/v1/shipments`)
+      service: shipment
+
+    # Each service's own spec, for the combined Swagger UI at /docs.
+    identity-openapi:
+      rule: Path(`/openapi/identity.json`)
+      service: identity
+      middlewares: [openapi-json]
+    warehouse-openapi:
+      rule: Path(`/openapi/warehouse.json`)
+      service: warehouse
+      middlewares: [openapi-json]
+    inventory-openapi:
+      rule: Path(`/openapi/inventory.json`)
+      service: inventory
+      middlewares: [openapi-json]
+    shipment-openapi:
+      rule: Path(`/openapi/shipment.json`)
+      service: shipment
+      middlewares: [openapi-json]
+
+    docs:
+      rule: PathPrefix(`/docs`)
+      service: docs
+
+  middlewares:
+    openapi-json:
+      replacePath:
+        path: /openapi.json
+
+  services:
+    identity:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8001"}]
+    warehouse:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8002"}]
+    inventory:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8003"}]
+    shipment:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8004"}]
+    docs:
+      loadBalancer:
+        servers: [{url: "http://docs:8080"}]

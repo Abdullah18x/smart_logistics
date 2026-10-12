@@ -1,9 +1,11 @@
 # SmartLogistics — microservices stack.
 #
-#   make keys                       generate the Identity signing key (once)
-#   docker compose up -d --build    databases, Kafka, gateway, 4 services + workers
-#   make seed                       development data
+#   ./dev.sh docker up              signing key + databases, Kafka, gateway, 4 services + workers
+#   ./dev.sh docker seed            development data
 #   open http://localhost:8000/...  everything goes through the gateway
+#   open http://localhost:8000/docs one Swagger UI for every service
+#
+# (Windows: .\dev.ps1 or dev instead of ./dev.sh)
 #
 # Each service owns an isolated Postgres instance (its own container, volume
 # and credentials). No service can reach another's database; data crosses only
@@ -125,6 +127,47 @@ services:
     ports: ["${GATEWAY_PORT:-8000}:8000", "8080:8080"]
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
 
+  # The same edge for local development: `./dev.sh infra up` starts this one
+  # instead, routing to the services running on your machine (infra/gateway/local.yml).
+  gateway-local:
+    image: traefik:v3.5
+    profiles: ["local"]
+    restart: unless-stopped
+    command:
+      - --providers.file.filename=/etc/traefik/local.yml
+      - --entrypoints.web.address=:8000
+      - --api.dashboard=true
+      - --api.insecure=true
+    ports: ["${GATEWAY_PORT:-8000}:8000", "8080:8080"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: ["./infra/gateway/local.yml:/etc/traefik/local.yml:ro"]
+    depends_on: [docs]
+
+  # One Swagger UI for every service, behind the gateway at /docs. A dropdown
+  # switches between the specs each service serves (/openapi/<service>.json);
+  # "Try it out" calls go through the gateway, and the token you authorise
+  # with is remembered across services and reloads.
+  docs:
+    image: swaggerapi/swagger-ui:v5.17.14
+    restart: unless-stopped
+    environment:
+      BASE_URL: /docs
+      URLS: >-
+        [{"name": "identity — auth & users", "url": "/openapi/identity.json"},
+         {"name": "warehouse", "url": "/openapi/warehouse.json"},
+         {"name": "inventory — catalog, stock & reservations", "url": "/openapi/inventory.json"},
+         {"name": "shipment", "url": "/openapi/shipment.json"}]
+      URLS_PRIMARY_NAME: identity — auth & users
+      PERSIST_AUTHORIZATION: "true"
+      DISPLAY_REQUEST_DURATION: "true"
+      TRY_IT_OUT_ENABLED: "true"
+      FILTER: "true"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.docs.rule: PathPrefix(`/docs`)
+      traefik.http.routers.docs.entrypoints: web
+      traefik.http.services.docs.loadbalancer.server.port: "8080"
+
   jaeger:
     image: jaegertracing/all-in-one:1.62.0
     restart: unless-stopped
@@ -151,6 +194,12 @@ services:
       traefik.http.routers.identity.rule: PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/users`) || Path(`/.well-known/jwks.json`)
       traefik.http.routers.identity.entrypoints: web
       traefik.http.services.identity.loadbalancer.server.port: "8000"
+      # Its spec, for the combined Swagger UI at http://localhost:8000/docs
+      traefik.http.routers.identity-openapi.rule: Path(`/openapi/identity.json`)
+      traefik.http.routers.identity-openapi.entrypoints: web
+      traefik.http.routers.identity-openapi.service: identity
+      traefik.http.routers.identity-openapi.middlewares: identity-openapi
+      traefik.http.middlewares.identity-openapi.replacepath.path: /openapi.json
 
   identity-worker:
     image: smartlogistics/identity:${IMAGE_TAG:-local}
@@ -180,6 +229,12 @@ services:
       traefik.http.routers.warehouse.rule: PathPrefix(`/api/v1/warehouses`)
       traefik.http.routers.warehouse.entrypoints: web
       traefik.http.services.warehouse.loadbalancer.server.port: "8000"
+      # Its spec, for the combined Swagger UI at http://localhost:8000/docs
+      traefik.http.routers.warehouse-openapi.rule: Path(`/openapi/warehouse.json`)
+      traefik.http.routers.warehouse-openapi.entrypoints: web
+      traefik.http.routers.warehouse-openapi.service: warehouse
+      traefik.http.routers.warehouse-openapi.middlewares: warehouse-openapi
+      traefik.http.middlewares.warehouse-openapi.replacepath.path: /openapi.json
 
   warehouse-worker:
     image: smartlogistics/warehouse:${IMAGE_TAG:-local}
@@ -207,6 +262,12 @@ services:
       traefik.http.routers.inventory.rule: PathPrefix(`/api/v1/inventory`) || PathPrefix(`/api/v1/skus`)
       traefik.http.routers.inventory.entrypoints: web
       traefik.http.services.inventory.loadbalancer.server.port: "8000"
+      # Its spec, for the combined Swagger UI at http://localhost:8000/docs
+      traefik.http.routers.inventory-openapi.rule: Path(`/openapi/inventory.json`)
+      traefik.http.routers.inventory-openapi.entrypoints: web
+      traefik.http.routers.inventory-openapi.service: inventory
+      traefik.http.routers.inventory-openapi.middlewares: inventory-openapi
+      traefik.http.middlewares.inventory-openapi.replacepath.path: /openapi.json
 
   inventory-worker:
     image: smartlogistics/inventory:${IMAGE_TAG:-local}
@@ -235,6 +296,12 @@ services:
       traefik.http.routers.shipment.rule: PathPrefix(`/api/v1/shipments`)
       traefik.http.routers.shipment.entrypoints: web
       traefik.http.services.shipment.loadbalancer.server.port: "8000"
+      # Its spec, for the combined Swagger UI at http://localhost:8000/docs
+      traefik.http.routers.shipment-openapi.rule: Path(`/openapi/shipment.json`)
+      traefik.http.routers.shipment-openapi.entrypoints: web
+      traefik.http.routers.shipment-openapi.service: shipment
+      traefik.http.routers.shipment-openapi.middlewares: shipment-openapi
+      traefik.http.middlewares.shipment-openapi.replacepath.path: /openapi.json
 
   shipment-worker:
     image: smartlogistics/shipment:${IMAGE_TAG:-local}

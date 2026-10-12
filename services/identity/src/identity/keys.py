@@ -39,11 +39,11 @@ class SigningKey:
             if settings.is_deployed:
                 raise RuntimeError(
                     "JWT_PRIVATE_KEY or JWT_PRIVATE_KEY_FILE must be set outside local "
-                    "development. Generate one with `make keys`."
+                    "development. Generate one with `./dev.sh keys`."
                 )
             logger.warning(
                 "No signing key configured: generating an ephemeral one. Tokens will not "
-                "survive a restart, and multiple Identity pods would disagree. Run `make keys`."
+                "survive a restart, and multiple Identity pods would disagree. Run `./dev.sh keys`."
             )
             key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
             pem = key.private_bytes(

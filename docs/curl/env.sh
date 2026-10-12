@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Source this to set up a shell for manual testing:
 #
-#   source curl/env.sh
+#   source docs/curl/env.sh
 #
 # Logs in as the seeded admin and exports ACCESS_TOKEN / REFRESH_TOKEN.
 

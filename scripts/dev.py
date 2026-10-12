@@ -10,13 +10,15 @@ virtualenv exists first:
 Local development (services on your machine, infrastructure in Docker):
 
     setup                     install the workspace and generate the signing key
-    infra up|down|status      start/stop only the 4 databases, Kafka and Jaeger
+    infra up|down|status      start/stop the 4 databases, Kafka, Jaeger and the
+                              gateway (http://localhost:8000, Swagger UI at /docs)
     migrate [svc ...]         apply migrations (all services by default)
     migrate --down [svc ...]  roll every migration back
     seed                      load development data (warehouse, identity, inventory)
     start [svc ...]           run the APIs and their workers in one terminal
                               --no-workers, --reload; Ctrl+C stops everything
     status                    health of every service on 8001-8004
+    docs                      regenerate docs/curl (merged OpenAPI, Postman, curl)
     reset                     migrate --down, migrate, seed
 
 Everything in Docker:
@@ -65,7 +67,23 @@ SERVICES: dict[str, tuple[int, int]] = {
 SEED_ORDER = ("warehouse", "identity", "inventory")
 #: Services with a background worker (outbox relay and/or consumers).
 WORKERS = ("identity", "warehouse", "inventory", "shipment")
-INFRA = ("identity-db", "warehouse-db", "inventory-db", "shipment-db", "kafka", "jaeger")
+INFRA = (
+    "identity-db",
+    "warehouse-db",
+    "inventory-db",
+    "shipment-db",
+    "kafka",
+    "jaeger",
+    "docs",
+    "gateway-local",
+)
+#: Where uvicorn listens. The local gateway runs in Docker and reaches the APIs
+#: through host.docker.internal: Docker Desktop (macOS, Windows) forwards that
+#: to the host's loopback, but on Linux it is the bridge address, so the APIs
+#: must listen on every interface there. Override with SL_BIND_HOST.
+BIND_HOST = os.environ.get("SL_BIND_HOST") or (
+    "0.0.0.0" if sys.platform.startswith("linux") else "127.0.0.1"
+)
 KEY_FILE = ROOT / "infra" / "keys" / "jwt-private.pem"
 COLORS = {"identity": 36, "warehouse": 33, "inventory": 35, "shipment": 32}
 
@@ -121,10 +139,13 @@ def run(cmd: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None) 
         fail(f"`{' '.join(cmd)}` failed (exit {result.returncode})", result.returncode)
 
 
-def compose(*args: str) -> None:
+def compose(*args: str, check: bool = True) -> None:
     if shutil.which("docker") is None:
         fail("Docker is not installed or not on PATH.")
-    run(["docker", "compose", *args])
+    if check:
+        run(["docker", "compose", *args])
+    else:
+        subprocess.run(["docker", "compose", *args], cwd=ROOT, capture_output=True)
 
 
 # --- commands ------------------------------------------------------------------------
@@ -157,9 +178,11 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
 def cmd_infra(args: argparse.Namespace) -> None:
     if args.action == "up":
-        say("starting databases, Kafka and Jaeger (services run on this machine)")
+        say("starting databases, Kafka, Jaeger and the gateway (services run on this machine)")
+        compose("rm", "-sf", "gateway", check=False)  # the Docker stack's gateway owns :8000
         compose("up", "-d", "--wait", *INFRA)
         say("infrastructure ready — next: migrate, seed, start")
+        say("then: gateway http://localhost:8000 · Swagger UI http://localhost:8000/docs")
     elif args.action == "down":
         compose("stop", *INFRA)
     else:
@@ -242,7 +265,10 @@ def cmd_start(args: argparse.Namespace) -> None:
     # Identity first, so the others find the JWKS endpoint when they warm up.
     for service in sorted(services, key=lambda s: s != "identity"):
         port = SERVICES[service][0]
-        api = [PYTHON, "-m", "uvicorn", f"{service}.main:app", "--port", str(port)]
+        api = [
+            PYTHON, "-m", "uvicorn", f"{service}.main:app",
+            "--host", BIND_HOST, "--port", str(port),
+        ]  # fmt: skip
         if args.reload:
             api += [
                 "--reload",
@@ -263,6 +289,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         + (" (+ workers)" if not args.no_workers else "")
         + " — Ctrl+C to stop"
     )
+    say("gateway http://localhost:8000 · Swagger UI for every service http://localhost:8000/docs")
     try:
         while True:
             for name, proc in processes:
@@ -305,10 +332,12 @@ def cmd_docker(args: argparse.Namespace) -> None:
     action = args.action
     if action == "up":
         cmd_keys(args)
+        compose("rm", "-sf", "gateway-local", check=False)  # local mode's gateway owns :8000
         compose("up", "-d", "--build")
-        say("stack starting — gateway http://localhost:8000, Jaeger http://localhost:16686")
+        say("stack starting — gateway http://localhost:8000, Swagger UI http://localhost:8000/docs")
+        say("Jaeger http://localhost:16686")
     elif action == "down":
-        compose("down", *(["-v"] if args.volumes else []))
+        compose("--profile", "local", "down", *(["-v"] if args.volumes else []))
     elif action == "ps":
         compose("ps")
     elif action == "logs":
@@ -321,6 +350,11 @@ def cmd_docker(args: argparse.Namespace) -> None:
         for service in SEED_ORDER:
             say(f"seeding {service} (in container)")
             compose("exec", service, "python", "-m", f"{service}.seed")
+
+
+def cmd_docs(_: argparse.Namespace) -> None:
+    say("regenerating docs/curl from every service's routes")
+    run([PYTHON, str(ROOT / "scripts" / "generate_api_docs.py")])
 
 
 def cmd_test(args: argparse.Namespace) -> None:
@@ -371,7 +405,7 @@ def main() -> None:
     )
     sub.add_parser("keys", help="generate Identity's signing key").set_defaults(func=cmd_keys)
 
-    infra = sub.add_parser("infra", help="databases, Kafka and Jaeger in Docker")
+    infra = sub.add_parser("infra", help="databases, Kafka, Jaeger and the gateway in Docker")
     infra.add_argument("action", choices=["up", "down", "status"])
     infra.set_defaults(func=cmd_infra)
 
@@ -392,6 +426,7 @@ def main() -> None:
     start.set_defaults(func=cmd_start)
 
     sub.add_parser("status", help="health of every service").set_defaults(func=cmd_status)
+    sub.add_parser("docs", help="regenerate docs/curl from the routes").set_defaults(func=cmd_docs)
 
     docker = sub.add_parser("docker", help="the full stack in Docker")
     docker.add_argument("action", choices=["up", "down", "ps", "logs", "migrate", "seed"])

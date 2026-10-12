@@ -4,7 +4,7 @@
 DEV := ./dev.sh
 
 .PHONY: help setup keys infra-up infra-down migrate seed reset start status \
-	up down ps logs docker-migrate docker-seed test lint check
+	up down ps logs docker-migrate docker-seed docs test lint check
 
 help:  ## Show this help
 	@grep -E '^[a-z0-9-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -15,7 +15,7 @@ keys:  ## Generate Identity's signing key
 	$(DEV) keys
 
 # --- local: services on this machine, infrastructure in Docker ----------------
-infra-up:  ## Start the 4 databases, Kafka and Jaeger
+infra-up:  ## Start the 4 databases, Kafka, Jaeger and the gateway (:8000, /docs)
 	$(DEV) infra up
 infra-down:  ## Stop them
 	$(DEV) infra down
@@ -29,6 +29,8 @@ start:  ## Run APIs + workers in one terminal (make start s=shipment)
 	$(DEV) start $(s)
 status:  ## Health of every service
 	$(DEV) status
+docs:  ## Regenerate docs/curl (merged OpenAPI, Postman, curl) from the routes
+	$(DEV) docs
 
 # --- everything in Docker -------------------------------------------------------
 up:  ## Build and start the full stack
