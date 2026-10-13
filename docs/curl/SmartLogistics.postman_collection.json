@@ -2089,7 +2089,7 @@
                 "description": "Validated against the state machine; every transition writes an audit\nrow and a `shipment.status_changed` event. Concurrent changes to the same\nshipment cannot both apply: the loser gets 409 `concurrent_update`.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"status\": \"created\",\n  \"reason\": \"string\",\n  \"courier_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "raw": "{\n  \"reason\": \"Picked and packed\",\n  \"status\": \"ready_for_dispatch\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"

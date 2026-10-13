@@ -9328,7 +9328,11 @@
           "status"
         ],
         "title": "ShipmentStatusUpdate",
-        "description": "A validated lifecycle transition."
+        "description": "A validated lifecycle transition.\n\nStaff move a shipment to `ready_for_dispatch`, `returned` or `return_initiated`;\n`dispatching` is requested with `POST /shipments/{id}/dispatch`, and every status\nfrom `dispatched` onwards is written by the dispatch and delivery workflows.",
+        "example": {
+          "reason": "Picked and packed",
+          "status": "ready_for_dispatch"
+        }
       },
       "ShipmentSummary": {
         "properties": {

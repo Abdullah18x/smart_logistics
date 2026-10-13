@@ -212,7 +212,18 @@ class ShipmentUpdate(BaseModel):
 
 
 class ShipmentStatusUpdate(BaseModel):
-    """A validated lifecycle transition."""
+    """A validated lifecycle transition.
+
+    Staff move a shipment to `ready_for_dispatch`, `returned` or `return_initiated`;
+    `dispatching` is requested with `POST /shipments/{id}/dispatch`, and every status
+    from `dispatched` onwards is written by the dispatch and delivery workflows.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"status": "ready_for_dispatch", "reason": "Picked and packed"}
+        }
+    )
 
     status: ShipmentStatus
     reason: str | None = Field(default=None, max_length=500)

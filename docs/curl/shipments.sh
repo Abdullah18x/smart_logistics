@@ -35,7 +35,7 @@ curl -s -X GET "$BASE_URL/api/v1/shipments/${shipment_id}/history" \
 curl -s -X PATCH "$BASE_URL/api/v1/shipments/${shipment_id}/status" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"status": "created", "reason": "string", "courier_id": "00000000-0000-0000-0000-000000000000"}' | jq
+  -d '{"reason": "Picked and packed", "status": "ready_for_dispatch"}' | jq
 
 # Dispatch a shipment (starts the dispatch workflow)  [shipment]
 curl -s -X POST "$BASE_URL/api/v1/shipments/${shipment_id}/dispatch" \
