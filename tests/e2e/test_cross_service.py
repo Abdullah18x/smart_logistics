@@ -1,4 +1,4 @@
-"""End-to-end flows across Identity, Warehouse, Inventory and Shipment."""
+"""End-to-end flows across the core services (dispatch runs the real workflow)."""
 
 import uuid
 
@@ -46,6 +46,25 @@ async def holds(platform, headers, shipment_id) -> list[dict]:
     ).json()
 
 
+async def dispatch(platform, admin, shipment_id: str) -> dict:
+    """Ready it, pack it, request dispatch and let the workflow finish."""
+    http = platform.http["shipment"]
+    ready = await http.patch(
+        f"/api/v1/shipments/{shipment_id}/status",
+        json={"status": "ready_for_dispatch"},
+        headers=admin,
+    )
+    assert ready.status_code == 200, ready.text
+    packed = await http.post(
+        f"/api/v1/shipments/{shipment_id}/packages", json={"weight_g": 1500}, headers=admin
+    )
+    assert packed.status_code == 201, packed.text
+    requested = await http.post(f"/api/v1/shipments/{shipment_id}/dispatch", headers=admin)
+    assert requested.status_code == 202, requested.text
+    await platform.pump()  # dispatch_requested -> the orchestrator starts the workflow
+    return await platform.settle(requested.json()["dispatch_workflow_id"])
+
+
 async def test_replicas_were_built_from_warehouse_events(platform):
     from shipment.db import database
     from shipment.models import WarehouseRef
@@ -88,11 +107,7 @@ async def test_create_dispatch_and_stock_follows(platform):
     await platform.pump()  # shipment.created -> Inventory confirms the hold
     assert all(h["confirmed_at"] for h in await holds(platform, admin, shipment["id"]))
 
-    for status in ("ready_for_dispatch", "dispatching", "dispatched"):
-        response = await platform.http["shipment"].patch(
-            f"/api/v1/shipments/{shipment['id']}/status", json={"status": status}, headers=admin
-        )
-        assert response.status_code == 200, response.text
+    await dispatch(platform, admin, shipment["id"])
     await platform.pump()  # shipment.status_changed(dispatched) -> Inventory commits
 
     after = await stock(platform, admin, KHI, KEYBOARD)

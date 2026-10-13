@@ -131,6 +131,41 @@
               ]
             },
             {
+              "name": "Service account: exchange client credentials for a system token",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/service-token",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "service-token"
+                  ],
+                  "query": []
+                },
+                "description": "For services acting on their own behalf (the orchestrator dispatching a\nshipment), not for people. The token has role `system`, lives a few\nminutes and has no refresh token: the caller asks again.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"client_id\": \"orchestrator\",\n  \"client_secret\": \"orchestrator-dev-secret\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "Revoke one or all sessions",
               "request": {
                 "method": "POST",
@@ -2054,13 +2089,67 @@
                 "description": "Validated against the state machine; every transition writes an audit\nrow and a `shipment.status_changed` event. Concurrent changes to the same\nshipment cannot both apply: the loser gets 409 `concurrent_update`.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"status\": \"created\",\n  \"reason\": \"string\"\n}",
+                  "raw": "{\n  \"status\": \"created\",\n  \"reason\": \"string\",\n  \"courier_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 }
+              }
+            },
+            {
+              "name": "Dispatch a shipment (starts the dispatch workflow)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/shipments/{{shipment_id}}/dispatch",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "shipments",
+                    "{{shipment_id}}",
+                    "dispatch"
+                  ],
+                  "query": []
+                },
+                "description": "Accepted, not done: the shipment moves to `dispatching` and the dispatch\nworkflow takes over — validate, confirm stock, print labels, assign a\ncourier, start tracking — then records `dispatched`, or `dispatch_failed`\nwith the reason (after undoing what it did). Follow it on this shipment's\nstatus, or in the Temporal UI under `dispatch_workflow_id`. Retry a failed\ndispatch by moving it back to `ready_for_dispatch`."
+              }
+            },
+            {
+              "name": "Generate shipping labels (dispatch workflow)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/shipments/{{shipment_id}}/labels",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "shipments",
+                    "{{shipment_id}}",
+                    "labels"
+                  ],
+                  "query": []
+                },
+                "description": "One A6 PDF per package with a Code 128 barcode. Called by the dispatch\nworkflow (an admin may re-print); safe to repeat."
               }
             },
             {
@@ -2144,6 +2233,34 @@
               }
             },
             {
+              "name": "Download a package's shipping label (PDF)",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/shipments/packages/{{package_id}}/label",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "shipments",
+                    "packages",
+                    "{{package_id}}",
+                    "label"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            },
+            {
               "name": "Update a parcel",
               "request": {
                 "method": "PATCH",
@@ -2181,6 +2298,876 @@
                     }
                   }
                 }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "courier service",
+      "item": [
+        {
+          "name": "Couriers",
+          "item": [
+            {
+              "name": "Create a courier profile",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers"
+                  ],
+                  "query": []
+                },
+                "description": "`user_id` links the profile to the partner's login; Identity mirrors the\nlink from the `courier.created` event, so their token carries `courier_id`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"CR-0101\",\n  \"full_name\": \"Usman Tariq\",\n  \"home_city\": \"Karachi\",\n  \"max_active_shipments\": 8,\n  \"max_weight_g\": 30000,\n  \"phone\": \"+923001119999\",\n  \"vehicle_plate\": \"KHI-4471\",\n  \"vehicle_type\": \"motorcycle\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "List couriers",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers"
+                  ],
+                  "query": [
+                    {
+                      "key": "city",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "availability",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "warehouse_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "offset",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "The calling courier's own profile",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/me",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "me"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Go on shift, take a break or go offline",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/me/availability",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "me",
+                    "availability"
+                  ],
+                  "query": []
+                },
+                "description": "Only `available` couriers receive new automatic assignments. Going offline\nkeeps the shipments already carried.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"availability\": \"available\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Fetch a courier",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/{{courier_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "{{courier_id}}"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Update a courier profile",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/{{courier_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "{{courier_id}}"
+                  ],
+                  "query": []
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"full_name\": \"string\",\n  \"phone\": \"string\",\n  \"email\": \"admin@transfleet.com\",\n  \"vehicle_type\": \"bicycle\",\n  \"vehicle_plate\": \"string\",\n  \"max_active_shipments\": 0,\n  \"max_weight_g\": 0,\n  \"home_city\": \"string\",\n  \"home_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"user_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Deactivate (soft delete) a courier",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/{{courier_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "{{courier_id}}"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Suspend or reactivate a courier",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/{{courier_id}}/status",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "{{courier_id}}",
+                    "status"
+                  ],
+                  "query": []
+                },
+                "description": "Suspending also takes the courier offline; shipments they carry stay with\nthem until reassigned.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"active\",\n  \"reason\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Set a courier's availability on their behalf",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/{{courier_id}}/availability",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "{{courier_id}}",
+                    "availability"
+                  ],
+                  "query": []
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"availability\": \"available\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Restore a deleted courier",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/{{courier_id}}/restore",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "{{courier_id}}",
+                    "restore"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assignments",
+          "item": [
+            {
+              "name": "Assign a courier to a shipment (automatic or chosen)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/assignments",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "assignments"
+                  ],
+                  "query": []
+                },
+                "description": "Called by the dispatch workflow. Without `courier_id` the best courier is\nchosen: same city as the warehouse, available, below capacity, based at\nthis warehouse first, then least loaded. Candidates are locked with\n`SKIP LOCKED`, so concurrent dispatches never double-book a courier.\nRepeating the call for the same shipment returns the same assignment.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"shipment_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"total_weight_g\": 2400,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "List assignments",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/assignments?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "assignments"
+                  ],
+                  "query": [
+                    {
+                      "key": "shipment_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "courier_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "offset",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "The calling courier's jobs",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/assignments/mine?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "assignments",
+                    "mine"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "offset",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Hand a shipment to another courier (manual override)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/assignments/{{shipment_id}}/reassign",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "assignments",
+                    "{{shipment_id}}",
+                    "reassign"
+                  ],
+                  "query": []
+                },
+                "description": "Releases the current assignment and starts a new one, in one transaction.\nWithout `courier_id` the best *other* courier is chosen. Publishes\n`courier.unassigned` then `courier.assigned`; Shipment follows.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Courier's vehicle broke down\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Release a shipment's courier (dispatch compensation)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/couriers/assignments/{{shipment_id}}/release",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "couriers",
+                    "assignments",
+                    "{{shipment_id}}",
+                    "release"
+                  ],
+                  "query": []
+                },
+                "description": "A no-op (returns null) when nothing is assigned, so compensation can retry.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "orchestrator service",
+      "item": [
+        {
+          "name": "Dispatches",
+          "item": [
+            {
+              "name": "Progress of one dispatch workflow",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/dispatches/{{workflow_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "dispatches",
+                    "{{workflow_id}}"
+                  ],
+                  "query": []
+                },
+                "description": "`workflow_id` is the shipment's `dispatch_workflow_id`\n(`dispatch-<shipment>-<attempt>`). Shows the current step while running and\nthe outcome once finished; the Temporal UI (:8233) has the full history."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tracking service",
+      "item": [
+        {
+          "name": "Tracking",
+          "item": [
+            {
+              "name": "Open a shipment's journey (dispatch workflow)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/tracking/journeys",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "tracking",
+                    "journeys"
+                  ],
+                  "query": []
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"shipment_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reference_no\": \"string\",\n  \"courier_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"origin_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"destination_city\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Cancel a journey (dispatch compensation)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/tracking/journeys/{{shipment_id}}/cancel",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "tracking",
+                    "journeys",
+                    "{{shipment_id}}",
+                    "cancel"
+                  ],
+                  "query": []
+                },
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "A shipment's journey with its timeline",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/tracking/journeys/{{shipment_id}}?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "tracking",
+                    "journeys",
+                    "{{shipment_id}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Report a field update (courier)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/tracking/updates",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "tracking",
+                    "updates"
+                  ],
+                  "query": []
+                },
+                "description": "Pickup, progress, delivery attempts, location. Safe to retry: the same\n`event_id` is recorded once and comes back as `duplicate`. Milestones reach\nthe shipment through the delivery workflow, which validates them.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"event_id\": \"0f8fad5b-d9cb-469f-a165-70867728950e\",\n  \"location\": {\n    \"latitude\": 24.8607,\n    \"longitude\": 67.0011\n  },\n  \"milestone\": \"picked_up\",\n  \"occurred_at\": \"2026-10-12T09:15:00Z\",\n  \"shipment_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"type\": \"milestone\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Report many field updates at once (offline sync)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/tracking/updates/batch",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "tracking",
+                    "updates",
+                    "batch"
+                  ],
+                  "query": []
+                },
+                "description": "For a device coming back online: each update is processed on its own and\ngets its own result, in occurred order; duplicates and rejections never\nfail the batch.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"updates\": [\n    {\n      \"event_id\": \"0f8fad5b-d9cb-469f-a165-70867728950e\",\n      \"location\": {\n        \"latitude\": 24.8607,\n        \"longitude\": 67.0011\n      },\n      \"milestone\": \"picked_up\",\n      \"occurred_at\": \"2026-10-12T09:15:00Z\",\n      \"shipment_id\": \"00000000-0000-0000-0000-000000000000\",\n      \"type\": \"milestone\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Public tracking page data (no login)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/tracking/public/{{reference_no}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "tracking",
+                    "public",
+                    "{{reference_no}}"
+                  ],
+                  "query": []
+                },
+                "description": "What a customer sees with their tracking number: milestones and times,\nnever the courier's identity or position."
               }
             }
           ]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -28,6 +29,21 @@ class AccountInactiveError(AuthenticationError):
     """The account is not active."""
 
     code = "account_inactive"
+
+
+class InvalidClientError(AuthenticationError):
+    """Unknown service account or wrong secret."""
+
+    code = "invalid_client"
+
+
+#: Service-account subjects are stable UUIDs derived from the client id, so
+#: audit columns (``actor_id``) can record which service acted.
+SERVICE_NAMESPACE = uuid.UUID("5b0b6c3e-7a51-4c55-9a43-3f9d1f6f2a10")
+
+
+def service_subject(client_id: str) -> uuid.UUID:
+    return uuid.uuid5(SERVICE_NAMESPACE, f"service:{client_id}")
 
 
 class TokenReuseError(AuthenticationError):
@@ -97,6 +113,29 @@ class AuthService:
         stored.replaced_by_id = replacement.id
         await self.session.flush()
         return tokens
+
+    def issue_service_token(self, client_id: str, client_secret: str) -> tuple[str, int]:
+        """Client-credentials grant: a short-lived `system` token for a service.
+
+        No refresh token: the service simply asks again. Secrets are compared in
+        constant time, and an unknown client costs the same as a wrong secret.
+        """
+        expected = self.settings.service_clients.get(client_id)
+        matches = hmac.compare_digest((expected or "\0" * 32).encode(), client_secret.encode())
+        if expected is None or not matches:
+            raise InvalidClientError("Unknown client or wrong secret.")
+        ttl = timedelta(minutes=self.settings.service_token_ttl_minutes)
+        token = self.key.sign_access_token(
+            user_id=service_subject(client_id),
+            role=UserRole.SYSTEM.value,
+            name=client_id,
+            warehouse_ids=[],
+            courier_id=None,
+            ttl=ttl,
+            issuer=self.settings.jwt_issuer,
+            audience=self.settings.jwt_audience,
+        )
+        return token, int(ttl.total_seconds())
 
     async def logout(self, raw_token: str, *, user_id: uuid.UUID) -> None:
         stored = await self.tokens.get_by_token(raw_token)

@@ -36,10 +36,15 @@ ENV PYTHONUNBUFFERED=1 \
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 WORKDIR /app
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
-COPY --chown=app:app services/${SERVICE}/alembic.ini ./alembic.ini
-COPY --chown=app:app services/${SERVICE}/migrations ./migrations
+# Migrations, for the services that own a PostgreSQL database (the orchestrator
+# and tracking have none): /app/alembic.ini exists only when the service has one.
+COPY --chown=app:app services/${SERVICE} /app/service
 COPY --chown=app:app infra/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && if [ -f /app/service/alembic.ini ]; then \
+         ln -s /app/service/alembic.ini /app/alembic.ini \
+         && ln -s /app/service/migrations /app/migrations; \
+       fi
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \

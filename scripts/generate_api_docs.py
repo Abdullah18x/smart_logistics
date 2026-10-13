@@ -38,13 +38,32 @@ TOKEN_VAR = "{{access_token}}"
 KEY_FILE = ROOT / "infra" / "keys" / "jwt-private.pem"
 
 #: service -> direct port (for health checks, which the gateway does not route)
-SERVICES = {"identity": 8001, "warehouse": 8002, "inventory": 8003, "shipment": 8004}
+SERVICES = {
+    "identity": 8001,
+    "warehouse": 8002,
+    "inventory": 8003,
+    "shipment": 8004,
+    "courier": 8005,
+    "orchestrator": 8006,
+    "tracking": 8007,
+}
 
 #: Per-service probes; each service has its own, so they are not part of the gateway API.
 SKIPPED_PATHS = {"/health", "/health/ready"}
 
 # Endpoints that must not send an Authorization header.
-PUBLIC_PATHS = {"/api/v1/auth/login", "/api/v1/auth/refresh", "/.well-known/jwks.json"}
+PUBLIC_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/service-token",
+    "/.well-known/jwks.json",
+}
+PUBLIC_PREFIXES = ("/api/v1/tracking/public/",)
+
+
+def is_public(path: str) -> bool:
+    return path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES)
+
 
 TAG_ORDER = [
     "Authentication",
@@ -54,6 +73,10 @@ TAG_ORDER = [
     "Inventory",
     "Reservations",
     "Shipments",
+    "Couriers",
+    "Assignments",
+    "Dispatches",
+    "Tracking",
 ]
 
 
@@ -256,7 +279,7 @@ def postman_item(path: str, method: str, operation: dict, spec: dict) -> dict:
     body = request_body(operation, spec)
     if body is not None:
         headers.append({"key": "Content-Type", "value": "application/json"})
-    if path not in PUBLIC_PATHS:
+    if not is_public(path):
         headers.append({"key": "Authorization", "value": f"Bearer {TOKEN_VAR}"})
     if any(p.get("name") == "Idempotency-Key" for p in operation.get("parameters", [])):
         headers.append(
@@ -385,7 +408,7 @@ def build_curl_scripts(spec: dict) -> dict[str, str]:
 
         url_path = path.replace("{", "${")
         parts = [f'curl -s -X {method.upper()} "$BASE_URL{url_path}"']
-        if path not in PUBLIC_PATHS:
+        if not is_public(path):
             parts.append('  -H "Authorization: Bearer $ACCESS_TOKEN"')
         body = request_body(operation, spec)
         if body is not None:
@@ -419,7 +442,7 @@ def curl_command(path: str, method: str, operation: dict, spec: dict) -> str:
     """A single, copy-ready curl command using ``{{variable}}`` placeholders."""
     url_path = re.sub(r"\{(\w+)\}", r"{{\1}}", path)
     parts = [f'curl -X {method.upper()} "{{{{base_url}}}}{url_path}"']
-    if path not in PUBLIC_PATHS:
+    if not is_public(path):
         parts.append('  -H "Authorization: Bearer {{access_token}}"')
     body = request_body(operation, spec)
     if body is not None:
@@ -453,7 +476,7 @@ def build_html(spec: dict) -> str:
                 "path": path,
                 "summary": operation.get("summary") or "",
                 "description": (operation.get("description") or "").strip(),
-                "auth": path not in PUBLIC_PATHS,
+                "auth": not is_public(path),
                 "curl": curl_command(path, method, operation, spec),
                 "query": [
                     p["name"] for p in operation.get("parameters", []) if p.get("in") == "query"

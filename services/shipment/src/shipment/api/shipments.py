@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from shipment.api.deps import AnyPrincipal, OpsPrincipal, PackingPrincipal, ServiceDep
 from shipment.db import SessionDep, idempotency
@@ -195,7 +195,55 @@ async def change_status(
             principal=principal,
             reason=payload.reason,
             expected_version=if_match,
+            courier_id=payload.courier_id,
         )
+    )
+    await session.commit()
+    return result
+
+
+@router.post(
+    "/{shipment_id}/dispatch",
+    response_model=ShipmentRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={403: FORBIDDEN, 404: NOT_FOUND, 409: CONFLICT},
+    summary="Dispatch a shipment (starts the dispatch workflow)",
+)
+async def dispatch_shipment(
+    shipment_id: uuid.UUID,
+    principal: AnyPrincipal,
+    shipments: ServiceDep,
+    session: SessionDep,
+) -> ShipmentRead:
+    """Accepted, not done: the shipment moves to `dispatching` and the dispatch
+    workflow takes over — validate, confirm stock, print labels, assign a
+    courier, start tracking — then records `dispatched`, or `dispatch_failed`
+    with the reason (after undoing what it did). Follow it on this shipment's
+    status, or in the Temporal UI under `dispatch_workflow_id`. Retry a failed
+    dispatch by moving it back to `ready_for_dispatch`."""
+    result = ShipmentRead.model_validate(
+        await shipments.request_dispatch(shipment_id, principal=principal)
+    )
+    await session.commit()
+    return result
+
+
+@router.post(
+    "/{shipment_id}/labels",
+    response_model=ShipmentRead,
+    responses={403: FORBIDDEN, 404: NOT_FOUND, 409: CONFLICT},
+    summary="Generate shipping labels (dispatch workflow)",
+)
+async def generate_labels(
+    shipment_id: uuid.UUID,
+    principal: AnyPrincipal,
+    shipments: ServiceDep,
+    session: SessionDep,
+) -> ShipmentRead:
+    """One A6 PDF per package with a Code 128 barcode. Called by the dispatch
+    workflow (an admin may re-print); safe to repeat."""
+    result = ShipmentRead.model_validate(
+        await shipments.generate_labels(shipment_id, principal=principal)
     )
     await session.commit()
     return result
@@ -243,6 +291,26 @@ async def add_package(
     )
     await session.commit()
     return result
+
+
+@router.get(
+    "/packages/{package_id}/label",
+    response_class=Response,
+    responses={
+        200: {"content": {"application/pdf": {}}, "description": "The label PDF"},
+        404: {"model": Problem},
+    },
+    summary="Download a package's shipping label (PDF)",
+)
+async def download_label(
+    package_id: uuid.UUID, principal: AnyPrincipal, shipments: ServiceDep
+) -> Response:
+    label = await shipments.label(package_id, principal=principal)
+    return Response(
+        content=label.content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="label-{package_id}.pdf"'},
+    )
 
 
 @router.patch(

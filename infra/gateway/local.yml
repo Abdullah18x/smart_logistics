@@ -19,6 +19,15 @@ http:
     shipment:
       rule: PathPrefix(`/api/v1/shipments`)
       service: shipment
+    courier:
+      rule: PathPrefix(`/api/v1/couriers`)
+      service: courier
+    orchestrator:
+      rule: PathPrefix(`/api/v1/dispatches`)
+      service: orchestrator
+    tracking:
+      rule: PathPrefix(`/api/v1/tracking`)
+      service: tracking
 
     # Each service's own spec, for the combined Swagger UI at /docs.
     identity-openapi:
@@ -36,6 +45,18 @@ http:
     shipment-openapi:
       rule: Path(`/openapi/shipment.json`)
       service: shipment
+      middlewares: [openapi-json]
+    courier-openapi:
+      rule: Path(`/openapi/courier.json`)
+      service: courier
+      middlewares: [openapi-json]
+    orchestrator-openapi:
+      rule: Path(`/openapi/orchestrator.json`)
+      service: orchestrator
+      middlewares: [openapi-json]
+    tracking-openapi:
+      rule: Path(`/openapi/tracking.json`)
+      service: tracking
       middlewares: [openapi-json]
 
     docs:
@@ -69,6 +90,15 @@ http:
     shipment:
       loadBalancer:
         servers: [{url: "http://host.docker.internal:8004"}]
+    courier:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8005"}]
+    orchestrator:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8006"}]
+    tracking:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8007"}]
     docs:
       loadBalancer:
         servers: [{url: "http://docs:8080"}]

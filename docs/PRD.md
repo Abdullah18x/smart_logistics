@@ -1,7 +1,7 @@
 # SmartLogistics — Product Requirements
 
 **Product:** SmartLogistics backend (Part A: logistics core) · **Client:** TransFleet
-**Status:** Week 1 delivered, Week 2 in progress · **Last updated:** 2026-10-12
+**Status:** Weeks 1–2 delivered · **Last updated:** 2026-10-13
 
 This document covers what the brief asks of a PRD: key use cases, functional and
 non-functional requirements, the delivery timeline, and traceability from each requirement to
@@ -39,11 +39,11 @@ that keeps shipment, stock, courier and tracking data consistent and recoverable
 | UC-06 | Correct a shipment before dispatch (support); add and update its parcels (operator) | Support, operator | ✅ |
 | UC-07 | Cancel before dispatch and get the stock back | Support | ✅ |
 | UC-08 | See a shipment's full history: who changed what, when, why | Support, admin | ✅ |
-| UC-09 | Dispatch a shipment: validate, confirm stock, print labels, assign a courier, start tracking — all or nothing | Operator | 🔴 Week 2 |
-| UC-10 | Manage courier profiles and availability; reassign a shipment | Admin, courier, support | 🔴 Week 2 |
-| UC-11 | Record pickup, progress, delivery attempts and delivery from the field, over flaky networks | Courier | 🟡 transitions built; tracking service Week 2 |
-| UC-12 | Return a parcel after failed attempts | Support, operator | 🟡 transitions built; automatic return Week 2 |
-| UC-13 | Be notified of milestones | Customer, ops | 🔴 Week 3 |
+| UC-09 | Dispatch a shipment: validate, confirm stock, print labels, assign a courier, start tracking — all or nothing | Operator | ✅ |
+| UC-10 | Manage courier profiles and availability; reassign a shipment | Admin, courier, support | ✅ |
+| UC-11 | Record pickup, progress, delivery attempts and delivery from the field, over flaky networks | Courier | ✅ |
+| UC-12 | Return a parcel after failed attempts | Support, operator | ✅ automatic after the last attempt, or by support |
+| UC-13 | Be notified of milestones | Customer, ops | 🔴 Week 3 (public tracking lookup ✅) |
 | UC-14 | Monitor the nine operational metrics on dashboards | Admin | 🔴 Week 3 |
 | UC-15 | Ask the assistant about delays, throughput and courier performance | Admin, support | 🔴 Weeks 4–5 |
 
@@ -56,7 +56,7 @@ that keeps shipment, stock, courier and tracking data consistent and recoverable
 | FR-1.1 | Create, update and read shipments with items, packages, delivery address and metadata (service level, priority, promised date, declared value, instructions) | ✅ |
 | FR-1.2 | Register users with one of four roles; activate, suspend, deactivate, restore; change role | ✅ |
 | FR-1.3 | Scope warehouse operators to warehouses; enforce the scope on every read and write in every service | ✅ |
-| FR-1.4 | Courier profiles with vehicle, capacity, home city and operational availability | 🔴 Week 2 |
+| FR-1.4 | Courier profiles with vehicle, capacity, home city and operational availability | ✅ |
 | FR-1.5 | Shipment history and audit trail: every transition with actor, role, reason and time | ✅ |
 | FR-1.6 | Every update stays consistent across dependent services (stock, replicas, scopes) | ✅ |
 | FR-1.7 | Warehouses with zones and weekly opening hours; catalog of SKUs; stock positions with a movement ledger | ✅ |
@@ -65,29 +65,29 @@ that keeps shipment, stock, courier and tracking data consistent and recoverable
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-2.1 | Validate shipment details before dispatch | 🔴 Week 2 |
-| FR-2.2 | Reserve or confirm inventory | ✅ held at creation, confirmed by event; dispatch-time check Week 2 |
-| FR-2.3 | Generate shipping labels (PDF per package, with barcode) | 🔴 Week 2 |
-| FR-2.4 | Assign a courier automatically, with manual reassignment | 🔴 Week 2 |
-| FR-2.5 | Initialise the tracking journey | 🔴 Week 2 |
-| FR-2.6 | Mark dispatched only after every step succeeds; commit stock on dispatch | 🟡 stock commit on dispatch built; workflow Week 2 |
-| FR-2.7 | Partial failures never corrupt shipment state; a failed dispatch can be retried | 🟡 compensation on create built; saga Week 2 |
+| FR-2.1 | Validate shipment details before dispatch | ✅ |
+| FR-2.2 | Reserve or confirm inventory | ✅ held at creation, confirmed by event, checked again by the dispatch workflow |
+| FR-2.3 | Generate shipping labels (PDF per package, with barcode) | ✅ |
+| FR-2.4 | Assign a courier automatically, with manual reassignment | ✅ |
+| FR-2.5 | Initialise the tracking journey | ✅ |
+| FR-2.6 | Mark dispatched only after every step succeeds; commit stock on dispatch | ✅ only the workflow (`system`) can mark dispatched |
+| FR-2.7 | Partial failures never corrupt shipment state; a failed dispatch can be retried | ✅ saga compensation; retry is a new attempt |
 
 ### FR-3 Delivery workflow
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-3.1 | Record pickup, status updates, delivery attempts and final confirmation | 🟡 transitions and attempt count built; tracking service Week 2 |
-| FR-3.2 | Accept high-volume field updates; retries and duplicates are harmless | 🔴 Week 2 |
-| FR-3.3 | Recover from network failures; out-of-order updates handled | 🔴 Week 2 |
-| FR-3.4 | Real-time status visibility | 🟡 status queryable now; live journey Week 2 |
+| FR-3.1 | Record pickup, status updates, delivery attempts and final confirmation | ✅ |
+| FR-3.2 | Accept high-volume field updates; retries and duplicates are harmless | ✅ functionally (MongoDB, device event ids, batches); load test Week 3 |
+| FR-3.3 | Recover from network failures; out-of-order updates handled | ✅ |
+| FR-3.4 | Real-time status visibility | ✅ journey, timeline and public lookup |
 | FR-3.5 | Notifications and analytics updated on milestones | 🔴 Week 3 |
 
 ### FR-4 Distributed and event-driven behaviour
 
 | ID | Requirement | Status |
 |---|---|---|
-| FR-4.1 | Events for shipment creation, dispatch, courier assignment, tracking milestones, delivery, returns | 🟡 shipment, stock, user and warehouse events built; courier and tracking Week 2 |
+| FR-4.1 | Events for shipment creation, dispatch, courier assignment, tracking milestones, delivery, returns | ✅ |
 | FR-4.2 | Background processing independent of user-facing flows | ✅ worker process per service |
 | FR-4.3 | Traceable and recoverable; no double-processing | ✅ outbox + consumer dedupe; 🔴 dead-letter topic Week 3 |
 | FR-4.4 | Handle workload spikes | 🟡 workers scale independently; load tests Week 3 |
@@ -104,7 +104,7 @@ workflow issues.
 |---|---|---|
 | FR-6.1 | Clear separation of responsibilities between services | ✅ |
 | FR-6.2 | Logging for all critical flows | ✅ structured logs with request ids |
-| FR-6.3 | Diagnose failures in dispatch, courier assignment, tracking, reservation, workers | 🟡 traces to Jaeger; Temporal UI Week 2; metrics and dashboards Week 3 |
+| FR-6.3 | Diagnose failures in dispatch, courier assignment, tracking, reservation, workers | 🟡 traces to Jaeger, Temporal UI, failure reasons on shipments; metrics and dashboards Week 3 |
 
 ## 5. Non-functional requirements
 
@@ -129,15 +129,16 @@ Measurement and verification for each are in
 | FR-1.1 | shipment: `POST/GET/PATCH /shipments`, `/packages` | `services/shipment/tests/test_shipments.py` | 1 ✅ |
 | FR-1.2 | identity: `/users`, `/users/{id}/role`, `/status`, `/restore` | `services/identity/tests/test_users.py` | 1 ✅ |
 | FR-1.3 | identity scopes + `warehouse_ids` claim; filters in warehouse, inventory, shipment | `test_users.py`, `test_shipments.py`, e2e `test_operator_tokens_scope_rows_in_every_service` | 1 ✅ |
-| FR-1.4 | courier service | — | 2 |
+| FR-1.4 | courier service: `/couriers`, `/couriers/me/availability`; identity links logins by event | `services/courier/tests/test_couriers.py`, `services/identity/tests/test_courier_link.py` | 2 ✅ |
 | FR-1.5 | `shipment_status_history`, `GET /shipments/{id}/history` | `test_shipments.py` | 1 ✅ |
 | FR-1.6 | outbox, replicas, `warehouse.deleted` → scopes | e2e `test_replicas_were_built_from_warehouse_events`, `test_warehouse_status_and_deletion_propagate_as_events` | 1 ✅ |
 | FR-1.7 | warehouse service; inventory `/skus`, `/inventory`, `/adjustments`, `/movements` | `test_warehouses.py`, `test_reservations.py` | 1 ✅ |
 | FR-2.2 | inventory `/reservations`, confirm on `shipment.created` | `test_reservations.py`, e2e `test_create_dispatch_and_stock_follows` | 1 ✅ |
-| FR-2.6 | commit on `shipment.status_changed` → dispatched | e2e `test_create_dispatch_and_stock_follows` | 1 🟡 |
-| FR-2.7 | release on failure (`shipments/services`), `uuid5` keyed ids | e2e `test_idempotent_retry_across_services_holds_stock_once` | 1 🟡 |
-| FR-2.1, 2.3–2.5 | orchestrator `DispatchWorkflow`, courier, tracking, labels | workflow tests (Temporal test environment) | 2 |
-| FR-3.1–3.4 | tracking service, `DeliveryWorkflow` | workflow + e2e tests | 2 |
+| FR-2.6 | `mark_dispatched` activity; `system`-only transition; commit on `shipment.status_changed` | `test_dispatch.py::test_nobody_but_the_workflow_marks_dispatched`, e2e `test_dispatch_runs_every_step_and_delivery_follows_the_courier` | 2 ✅ |
+| FR-2.7 | release on failure, `uuid5` keyed ids; saga compensation; attempt-numbered workflow ids | `test_dispatch_workflow.py::test_a_late_failure_undoes_everything_in_reverse_order`, e2e `test_no_courier_fails_the_dispatch_cleanly_and_a_retry_succeeds`, `test_a_double_click_dispatches_once` | 2 ✅ |
+| FR-2.1, 2.3–2.5 | orchestrator `DispatchWorkflow`; shipment `/labels`; courier `/couriers/assignments`; tracking `/journeys` | `test_dispatch_workflow.py`, `test_activities.py`, `test_assignments.py`, `test_dispatch.py`, `test_tracking.py` | 2 ✅ |
+| FR-3.1–3.4 | tracking `/updates`, `/updates/batch`, `/public/{ref}`; `DeliveryWorkflow`; orchestrator trigger | `test_tracking.py`, `test_relay_and_events.py`, `test_delivery_workflow.py`, `test_trigger.py`, e2e | 2 ✅ |
+| FR-4.1 | `shipment.dispatch_requested`, `courier.assigned`, `tracking.milestone_recorded` and the rest | `test_dispatch.py`, `test_courier_events.py`, `test_relay_and_events.py`, e2e | 2 ✅ |
 | FR-4.2–4.3 | `sl_platform.outbox`, `sl_platform.consumer`, per-service workers | `libs/sl-platform/tests`, `services/*/tests/test_worker.py`, e2e cancellation test | 1 ✅ |
 | FR-5 | analytics service | — | 3 |
 | FR-6.2–6.3 | `sl_platform.logging_setup`, `sl_platform.telemetry`, Jaeger | manual (Jaeger UI) | 1 🟡 |
@@ -148,7 +149,7 @@ Measurement and verification for each are in
 | Week | Focus | Deliverables | Status |
 |---|---|---|---|
 | 1 | Foundation and core services | Working APIs, database schemas, Docker setup, clean service structure | ✅ ([phase_1.md](phase_1.md)) |
-| 2 | Dispatch and delivery workflows | Stable dispatch workflow, courier orchestration, reliable tracking state machine | In progress |
+| 2 | Dispatch and delivery workflows | Stable dispatch workflow, courier orchestration, reliable tracking state machine | ✅ ([phase_2.md](phase_2.md)) |
 | 3 | Events and observability | Kafka hardening (Schema Registry, DLQ), Celery workers, notifications, analytics, dashboards, tracing | Planned |
 | 4 | Retrieval layer (Part B) | Indexed operational data, semantic retrieval | Planned |
 | 5 | AI logistics layer (Part B) | Assistant, optimisation tools, streaming | Planned |

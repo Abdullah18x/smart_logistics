@@ -12,6 +12,8 @@ import logging
 import signal
 from collections.abc import Awaitable, Callable, Sequence
 
+from sqlalchemy import text
+
 from sl_platform.config import ServiceSettings
 from sl_platform.consumer import EventProcessor, KafkaConsumerRunner
 from sl_platform.db import Database
@@ -56,6 +58,53 @@ async def retry_until_ready(
     return False
 
 
+#: Platform tables every SQL service creates in its first migration.
+REQUIRED_TABLES = ("outbox_events", "processed_events")
+
+
+async def missing_tables(database: Database) -> list[str]:
+    """The platform tables not present in the service's database."""
+    async with database.engine.connect() as connection:
+        found = {
+            name: (await connection.execute(text("SELECT to_regclass(:t)"), {"t": name})).scalar()
+            for name in REQUIRED_TABLES
+        }
+    return [name for name, oid in found.items() if oid is None]
+
+
+async def wait_for_schema(
+    database: Database, service: str, stop: asyncio.Event, *, max_delay: float = 30.0
+) -> bool:
+    """Wait until the database is reachable and migrated.
+
+    A worker started before ``migrate`` must not relay or consume: consumers
+    would take events they cannot record. It says once, plainly, what to run,
+    and checks again with backoff. Returns False if asked to stop first.
+    """
+    delay, told = 2.0, None
+    while not stop.is_set():
+        try:
+            missing = await missing_tables(database)
+        except Exception as exc:
+            message = f"database unreachable ({exc.__class__.__name__}); is it running?"
+        else:
+            if not missing:
+                if told:
+                    logger.info("database schema found; starting")
+                return True
+            message = (
+                f"database not migrated (missing {', '.join(missing)}). "
+                f"Run the migrations:  ./dev.sh migrate {service}"
+            )
+        if message != told:
+            logger.error("%s — waiting", message)
+            told = message
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=delay)
+        delay = min(delay * 2, max_delay)
+    return False
+
+
 async def run_worker(
     settings: ServiceSettings,
     database: Database,
@@ -67,6 +116,9 @@ async def run_worker(
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
 
+    if not await wait_for_schema(database, settings.service_name, stop):
+        await database.dispose()
+        return
     publisher = KafkaPublisher(settings.kafka_bootstrap_servers)
     if not await retry_until_ready(publisher.start, "outbox relay", stop):
         await database.dispose()

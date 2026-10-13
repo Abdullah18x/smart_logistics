@@ -35,7 +35,15 @@ curl -s -X GET "$BASE_URL/api/v1/shipments/${shipment_id}/history" \
 curl -s -X PATCH "$BASE_URL/api/v1/shipments/${shipment_id}/status" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"status": "created", "reason": "string"}' | jq
+  -d '{"status": "created", "reason": "string", "courier_id": "00000000-0000-0000-0000-000000000000"}' | jq
+
+# Dispatch a shipment (starts the dispatch workflow)  [shipment]
+curl -s -X POST "$BASE_URL/api/v1/shipments/${shipment_id}/dispatch" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" | jq
+
+# Generate shipping labels (dispatch workflow)  [shipment]
+curl -s -X POST "$BASE_URL/api/v1/shipments/${shipment_id}/labels" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" | jq
 
 # Cancel a shipment (before dispatch only)  [shipment]
 curl -s -X POST "$BASE_URL/api/v1/shipments/${shipment_id}/cancel" \
@@ -48,6 +56,10 @@ curl -s -X POST "$BASE_URL/api/v1/shipments/${shipment_id}/packages" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"height_mm": 200, "length_mm": 400, "weight_g": 1200, "width_mm": 300}' | jq
+
+# Download a package's shipping label (PDF)  [shipment]
+curl -s -X GET "$BASE_URL/api/v1/shipments/packages/${package_id}/label" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" | jq
 
 # Update a parcel  [shipment]
 curl -s -X PATCH "$BASE_URL/api/v1/shipments/packages/${package_id}" \

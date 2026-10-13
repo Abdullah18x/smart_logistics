@@ -22,4 +22,4 @@ def test_worker_main_runs_the_platform_worker(monkeypatch):
     assert database is worker_module.database
     assert len(processors) == 1
     topics = {topic for processor in processors for topic in processor.topics}
-    assert topics == {"warehouse.events"}
+    assert topics == {"warehouse.events", "courier.events"}

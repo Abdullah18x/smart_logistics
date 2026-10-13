@@ -43,4 +43,5 @@ def setup_telemetry(app: Any, *, service_name: str, endpoint: str | None, engine
     trace.set_tracer_provider(provider)
     FastAPIInstrumentor.instrument_app(app, excluded_urls="/health,/health/ready")
     HTTPXClientInstrumentor().instrument()
-    SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
+    if engine is not None:
+        SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)

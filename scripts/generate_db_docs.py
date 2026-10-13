@@ -34,6 +34,11 @@ SERVICES = {
         5444,
         "Shipments with their items, packages and audit trail, a warehouse replica.",
     ),
+    "courier": (
+        "courier-db",
+        5445,
+        "Courier profiles, shipment assignments with their history, a warehouse replica.",
+    ),
 }
 
 # Runs inside each service's interpreter and prints its tables as JSON.
@@ -196,7 +201,8 @@ def render(data: dict[str, dict]) -> str:
         "# Database Reference",
         "",
         f"**Engine:** PostgreSQL 16 · **Databases:** {len(data)} (one per service) · "
-        f"**Service tables:** {total_tables} · **Platform tables in each:** {len(platform)}",
+        f"**Service tables:** {total_tables} · **Platform tables in each:** {len(platform)} · "
+        "plus MongoDB for tracking ([below](#tracking-mongodb))",
         f"**Generated:** {date.today().isoformat()} by `scripts/generate_db_docs.py` "
         "(`./dev.sh docs`). Do not edit by hand.",
         "",
@@ -254,7 +260,10 @@ def render(data: dict[str, dict]) -> str:
         "| `shipment.shipment_items.sku_id` | a SKU | SKU code, name and weight are "
         "**snapshotted** onto the line when stock is held |",
         "| `shipment.shipments.courier_id`, `identity.users.courier_id` | a courier profile "
-        "| the Courier service (Week 2) |",
+        "| set from `courier.assigned` / `courier.*` events |",
+        "| `courier.courier_assignments.shipment_id`, `.warehouse_id` | a shipment, a warehouse "
+        "| assigned by the dispatch workflow; ended by `shipment.status_changed` |",
+        "| `courier.couriers.user_id` | a login | identity mirrors it as `users.courier_id` |",
         "",
         "Display fields are copied (`origin_warehouse_code`, `sku_name`) so a read never "
         "needs another service.",
@@ -278,7 +287,62 @@ def render(data: dict[str, dict]) -> str:
     ]
     for table in platform:
         out += table_section(table)
+    out += ["---", "", *MONGO_SECTION]
     return "\n".join(out).rstrip() + "\n"
+
+
+#: The tracking service keeps its data in MongoDB, not SQL: described here by hand
+#: (see services/tracking/src/tracking/store.py).
+MONGO_SECTION = [
+    "## tracking (MongoDB)",
+    "",
+    "Journeys and field updates. Every write is a single-document operation, so "
+    "nothing needs a multi-document transaction.",
+    "",
+    "### journeys",
+    "",
+    "One document per dispatched shipment.",
+    "",
+    "| Field | Type | Notes |",
+    "|---|---|---|",
+    "| `_id` | string | the shipment id |",
+    "| `reference_no` | string | unique index; the public tracking number |",
+    "| `courier_id` | string | the courier allowed to report; follows `courier.assigned` |",
+    "| `origin_warehouse_id`, `destination_city` | string | for scoping and display |",
+    "| `status` | string | `active`, `completed`, `cancelled` (a failed dispatch; reopened "
+    "on retry) |",
+    "| `milestone`, `milestone_at` | string, date | latest milestone by **occurred** time; "
+    "only ever moves forward |",
+    "| `delivery_attempts` | int | failed attempts recorded |",
+    "| `last_location` | object | newest position fix: `latitude`, `longitude`, "
+    "`accuracy_m`, `at` |",
+    "| `started_at`, `updated_at`, `completed_at`, `cancel_reason` | date, string | |",
+    "",
+    "Indexes: `reference_no` (unique), `courier_active` (`courier_id`, `status`).",
+    "",
+    "### tracking_events",
+    "",
+    "Append-only timeline; each document is also its own outbox entry.",
+    "",
+    "| Field | Type | Notes |",
+    "|---|---|---|",
+    "| `_id` | string | the device-generated `event_id`: a retried upload is rejected by "
+    "the primary key |",
+    "| `shipment_id` | string | |",
+    "| `type` | string | `milestone` or `location` |",
+    "| `milestone` | string | `picked_up`, `in_transit`, `out_for_delivery`, "
+    "`delivery_failed`, `delivered` from the field; `dispatched`, `return_initiated`, "
+    "`returned` from the system |",
+    "| `occurred_at`, `received_at` | date | device time and server time |",
+    "| `courier_id`, `location`, `failure_reason`, `note` | | |",
+    "| `source` | string | `courier`, `dispatch` or `shipment` |",
+    "| `published` | bool | `false` until the worker's relay publishes "
+    "`tracking.milestone_recorded`; `claimed_until` is the relay lease |",
+    "",
+    "Indexes: `shipment_timeline` (`shipment_id`, `occurred_at` desc), `outbox` "
+    "(`published`, `received_at`).",
+    "",
+]
 
 
 def main() -> None:

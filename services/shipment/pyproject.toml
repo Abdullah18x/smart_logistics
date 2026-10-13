@@ -3,7 +3,7 @@ name = "shipment-service"
 version = "0.1.0"
 description = "SmartLogistics Shipment: shipments, packages, lifecycle and audit history."
 requires-python = ">=3.12"
-dependencies = ["sl-platform[otel]", "uvicorn[standard]>=0.32", "email-validator>=2.2"]
+dependencies = ["sl-platform[otel]", "uvicorn[standard]>=0.32", "email-validator>=2.2", "reportlab>=4.2"]
 
 [tool.uv.sources]
 sl-platform = { workspace = true }

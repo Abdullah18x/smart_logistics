@@ -20,6 +20,11 @@ curl -s -X POST "$BASE_URL/api/v1/auth/refresh" \
   -H 'Content-Type: application/json' \
   -d '{"refresh_token": "string"}' | jq
 
+# Service account: exchange client credentials for a system token  [identity]
+curl -s -X POST "$BASE_URL/api/v1/auth/service-token" \
+  -H 'Content-Type: application/json' \
+  -d '{"client_id": "orchestrator", "client_secret": "orchestrator-dev-secret"}' | jq
+
 # Revoke one or all sessions  [identity]
 curl -s -X POST "$BASE_URL/api/v1/auth/logout" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \

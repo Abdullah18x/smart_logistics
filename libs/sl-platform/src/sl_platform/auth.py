@@ -47,6 +47,11 @@ class Principal:
         return self.role is UserRole.ADMIN
 
     @property
+    def is_system(self) -> bool:
+        """A service account acting on its own behalf, not a person."""
+        return self.role is UserRole.SYSTEM
+
+    @property
     def sees_all_warehouses(self) -> bool:
         return self.role in UNRESTRICTED_ROLES
 

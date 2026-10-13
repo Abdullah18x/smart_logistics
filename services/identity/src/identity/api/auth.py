@@ -14,6 +14,8 @@ from identity.schemas import (
     LoginResponse,
     LogoutRequest,
     RefreshRequest,
+    ServiceToken,
+    ServiceTokenRequest,
     SessionRead,
     TokenPair,
     UserRead,
@@ -67,6 +69,20 @@ async def refresh(
         refresh_token=tokens.refresh_token,
         expires_in=tokens.expires_in,
     )
+
+
+@router.post(
+    "/service-token",
+    response_model=ServiceToken,
+    summary="Service account: exchange client credentials for a system token",
+    responses={401: {"model": Problem}},
+)
+async def service_token(payload: ServiceTokenRequest, auth: AuthServiceDep) -> ServiceToken:
+    """For services acting on their own behalf (the orchestrator dispatching a
+    shipment), not for people. The token has role `system`, lives a few
+    minutes and has no refresh token: the caller asks again."""
+    token, expires_in = auth.issue_service_token(payload.client_id, payload.client_secret)
+    return ServiceToken(access_token=token, expires_in=expires_in)
 
 
 @router.post("/logout", response_model=MessageResponse, summary="Revoke one or all sessions")

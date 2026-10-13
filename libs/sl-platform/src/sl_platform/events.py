@@ -26,6 +26,8 @@ class Topics:
     WAREHOUSE = "warehouse.events"
     INVENTORY = "inventory.events"
     SHIPMENT = "shipment.events"
+    COURIER = "courier.events"
+    TRACKING = "tracking.events"
 
 
 class EventEnvelope(BaseModel):

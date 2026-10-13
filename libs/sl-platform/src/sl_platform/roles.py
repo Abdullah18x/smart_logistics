@@ -13,7 +13,16 @@ class UserRole(StrEnum):
     CUSTOMER_SUPPORT = "customer_support"
     WAREHOUSE_OPERATOR = "warehouse_operator"
     COURIER = "courier"
+    #: A service account (the orchestrator), never a person. Identity issues these
+    #: tokens from client credentials; no user row can hold this role.
+    SYSTEM = "system"
 
+
+#: Roles a person can have. ``SYSTEM`` is excluded: the identity database's
+#: ``user_role`` enum does not even contain it.
+HUMAN_ROLES = frozenset(
+    {UserRole.ADMIN, UserRole.CUSTOMER_SUPPORT, UserRole.WAREHOUSE_OPERATOR, UserRole.COURIER}
+)
 
 #: Roles that see every warehouse's rows.
-UNRESTRICTED_ROLES = frozenset({UserRole.ADMIN, UserRole.CUSTOMER_SUPPORT})
+UNRESTRICTED_ROLES = frozenset({UserRole.ADMIN, UserRole.CUSTOMER_SUPPORT, UserRole.SYSTEM})

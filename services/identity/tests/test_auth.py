@@ -122,3 +122,61 @@ class TestMe:
 
     async def test_missing_token_is_401(self, client):
         assert (await client.get("/api/v1/auth/me")).status_code == 401
+
+
+SERVICE_TOKEN = "/api/v1/auth/service-token"
+
+
+class TestServiceAccounts:
+    async def test_client_credentials_yield_a_short_lived_system_token(self, client):
+        response = await client.post(
+            SERVICE_TOKEN,
+            json={"client_id": "orchestrator", "client_secret": "orchestrator-test-secret"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["expires_in"] == 300
+        assert "refresh_token" not in body
+        claims = jwt.decode(body["access_token"], options={"verify_signature": False})
+        assert claims["role"] == "system"
+        assert claims["name"] == "orchestrator"
+        assert claims["warehouse_ids"] == []
+        # A stable subject, so audit rows can say which service acted.
+        again = await client.post(
+            SERVICE_TOKEN,
+            json={"client_id": "orchestrator", "client_secret": "orchestrator-test-secret"},
+        )
+        assert (
+            jwt.decode(again.json()["access_token"], options={"verify_signature": False})["sub"]
+            == claims["sub"]
+        )
+
+    async def test_wrong_secret_and_unknown_client_are_both_401(self, client):
+        for creds in (
+            {"client_id": "orchestrator", "client_secret": "nope"},
+            {"client_id": "nobody", "client_secret": "orchestrator-test-secret"},
+        ):
+            response = await client.post(SERVICE_TOKEN, json=creds)
+            assert response.status_code == 401
+            assert response.json()["code"] == "invalid_client"
+
+    async def test_no_person_can_be_given_the_system_role(self, client, factory):
+        admin = await factory.user(UserRole.ADMIN)
+        target = await factory.user(UserRole.COURIER)
+        created = await client.post(
+            "/api/v1/users",
+            headers=factory.headers(admin),
+            json={
+                "email": "bot@transfleet.com",
+                "full_name": "Not A Bot",
+                "password": "Dispatch!2026Ops",
+                "role": "system",
+            },
+        )
+        assert created.status_code == 422
+        changed = await client.patch(
+            f"/api/v1/users/{target.id}/role",
+            headers=factory.headers(admin),
+            json={"role": "system"},
+        )
+        assert changed.status_code == 422

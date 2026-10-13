@@ -67,10 +67,36 @@ class EventProcessor:
         return True
 
 
+EnvelopeHandler = Callable[[EventEnvelope], Awaitable[None]]
+
+
+class StatelessProcessor:
+    """An event processor for services without a SQL database.
+
+    No ``processed_events`` table: each handler must be naturally idempotent
+    (an insert keyed by the event id, a conditional update, a Temporal
+    workflow id). Runs under ``KafkaConsumerRunner`` like ``EventProcessor``.
+    """
+
+    def __init__(
+        self, name: str, handlers: dict[str, EnvelopeHandler], topics: tuple[str, ...]
+    ) -> None:
+        self.name = name
+        self.handlers = handlers
+        self.topics = topics
+
+    async def process(self, envelope: EventEnvelope) -> bool:
+        handler = self.handlers.get(envelope.event_type)
+        if handler is None:
+            return False
+        await handler(envelope)
+        return True
+
+
 class KafkaConsumerRunner:
     def __init__(
         self,
-        processor: EventProcessor,
+        processor: EventProcessor | StatelessProcessor,
         *,
         bootstrap_servers: str,
         max_attempts: int = 5,

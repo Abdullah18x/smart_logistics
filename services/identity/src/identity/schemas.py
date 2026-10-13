@@ -8,7 +8,7 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from identity.models import UserStatus
-from sl_platform.roles import UserRole
+from sl_platform.roles import HUMAN_ROLES, UserRole
 
 PHONE_PATTERN = r"^\+?[0-9\s\-()]{7,32}$"
 PASSWORD_MIN_LENGTH = 12
@@ -57,6 +57,15 @@ class UserBase(BaseModel):
         return " ".join(value.split())
 
 
+def _human_role(role: UserRole) -> UserRole:
+    if role not in HUMAN_ROLES:
+        raise ValueError("'system' is reserved for service accounts.")
+    return role
+
+
+HumanRole = Annotated[UserRole, AfterValidator(_human_role)]
+
+
 class UserCreate(UserBase):
     model_config = ConfigDict(
         json_schema_extra={
@@ -71,7 +80,7 @@ class UserCreate(UserBase):
     )
 
     password: StrongPassword
-    role: UserRole
+    role: HumanRole
 
 
 class UserUpdate(BaseModel):
@@ -80,7 +89,7 @@ class UserUpdate(BaseModel):
 
 
 class UserRoleUpdate(BaseModel):
-    role: UserRole
+    role: HumanRole
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -167,3 +176,22 @@ class SessionRead(BaseModel):
     expires_at: datetime
     user_agent: str | None = None
     ip_address: str | None = None
+
+
+class ServiceTokenRequest(BaseModel):
+    """OAuth2-style client credentials for a service account."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"client_id": "orchestrator", "client_secret": "orchestrator-dev-secret"}
+        }
+    )
+
+    client_id: str = Field(min_length=1, max_length=64)
+    client_secret: str = Field(min_length=1, max_length=256)
+
+
+class ServiceToken(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(description="Access token lifetime in seconds.")

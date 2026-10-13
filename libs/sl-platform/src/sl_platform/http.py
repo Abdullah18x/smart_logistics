@@ -21,6 +21,7 @@ import httpx
 
 from sl_platform.errors import RemoteError, UpstreamUnavailableError
 from sl_platform.logging_setup import request_id_var
+from sl_platform.service_auth import ServiceTokenProvider
 from sl_platform.telemetry import current_traceparent
 
 logger = logging.getLogger("sl_platform.http")
@@ -66,8 +67,11 @@ class ServiceClient:
         retries: int = 2,
         breaker: CircuitBreaker | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        service_tokens: ServiceTokenProvider | None = None,
     ) -> None:
         self.name = name
+        #: Used when a call carries no user token: the service acts as itself.
+        self.service_tokens = service_tokens
         self.retries = retries
         self.breaker = breaker or CircuitBreaker()
         # One pooled client per target service: keep-alive connections are
@@ -87,6 +91,28 @@ class ServiceClient:
         if self.breaker.is_open:
             raise UpstreamUnavailableError(f"{self.name} is unavailable.")
 
+        as_service = token is None and self.service_tokens is not None
+        if as_service:
+            token = await self.service_tokens.token()
+        try:
+            return await self._send(method, path, token, idempotency_key, json, params)
+        except RemoteError as exc:
+            if not (as_service and exc.status_code == 401):
+                raise
+            # The cached service token was rejected (rotated key, clock skew): renew once.
+            self.service_tokens.invalidate()
+            token = await self.service_tokens.token()
+            return await self._send(method, path, token, idempotency_key, json, params)
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        idempotency_key: str | None,
+        json: Any,
+        params: dict[str, Any] | None,
+    ) -> httpx.Response:
         headers: dict[str, str] = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -129,6 +155,9 @@ class ServiceClient:
 
     async def post(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self.request("POST", path, **kwargs)
+
+    async def patch(self, path: str, **kwargs: Any) -> httpx.Response:
+        return await self.request("PATCH", path, **kwargs)
 
     async def aclose(self) -> None:
         await self._client.aclose()

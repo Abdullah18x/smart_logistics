@@ -216,6 +216,9 @@ class ShipmentStatusUpdate(BaseModel):
 
     status: ShipmentStatus
     reason: str | None = Field(default=None, max_length=500)
+    courier_id: uuid.UUID | None = Field(
+        default=None, description="Set by the dispatch workflow when recording `dispatched`."
+    )
 
 
 class ShipmentCancel(BaseModel):
@@ -258,6 +261,7 @@ class ShipmentRead(ShipmentSummary):
     failure_reason: str | None = None
     special_instructions: str | None = None
     dispatch_workflow_id: str | None = None
+    dispatch_attempts: int = 0
     version: int
     updated_at: datetime
 

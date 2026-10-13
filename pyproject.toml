@@ -13,6 +13,7 @@ dev = [
     "pytest-cov>=6.0",
     "httpx>=0.28",
     "import-linter>=2.1",
+    "pypdf>=5.0",
 ]
 
 [tool.uv]
@@ -28,6 +29,9 @@ identity-service = { workspace = true }
 warehouse-service = { workspace = true }
 inventory-service = { workspace = true }
 shipment-service = { workspace = true }
+courier-service = { workspace = true }
+orchestrator-service = { workspace = true }
+tracking-service = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -43,23 +47,23 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 "scripts/html_template.py" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["sl_platform", "identity", "warehouse", "inventory", "shipment"]
+known-first-party = ["sl_platform", "identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
 
 # Service boundaries, enforced in CI (`make lint`). A service may import the
 # platform library, never another service: data crosses only over HTTP or Kafka.
 [tool.importlinter]
-root_packages = ["sl_platform", "identity", "warehouse", "inventory", "shipment"]
+root_packages = ["sl_platform", "identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
 
 [[tool.importlinter.contracts]]
 name = "Services are independent of each other"
 type = "independence"
-modules = ["identity", "warehouse", "inventory", "shipment"]
+modules = ["identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
 
 [[tool.importlinter.contracts]]
 name = "The platform library knows nothing about any service"
 type = "forbidden"
 source_modules = ["sl_platform"]
-forbidden_modules = ["identity", "warehouse", "inventory", "shipment"]
+forbidden_modules = ["identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

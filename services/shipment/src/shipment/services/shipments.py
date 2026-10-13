@@ -11,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shipment.clients import InventoryClient
 from shipment.events import ShipmentEvents, emit, emit_created
+from shipment.labels import render_label
 from shipment.models import (
     Address,
     Package,
+    PackageLabel,
     PackageStatus,
     ServiceLevel,
     Shipment,
@@ -210,10 +212,18 @@ class ShipmentService:
         principal: Principal,
         reason: str | None = None,
         expected_version: int | None = None,
+        courier_id: uuid.UUID | None = None,
     ) -> Shipment:
         shipment = await self.get(shipment_id, principal=principal)
         if principal.role not in TRANSITION_ROLES.get(target, frozenset()):
-            raise PermissionDeniedError(f"Your role cannot move a shipment to {target.value}.")
+            hint = (
+                " Request it with POST /dispatch." if target is ShipmentStatus.DISPATCHING else ""
+            )
+            raise PermissionDeniedError(
+                f"Your role cannot move a shipment to {target.value}.{hint}"
+            )
+        if courier_id is not None and not principal.is_system:
+            raise PermissionDeniedError("Only the dispatch workflow records the courier.")
         if principal.role is UserRole.WAREHOUSE_OPERATOR and not principal.may_touch_warehouse(
             shipment.origin_warehouse_id
         ):
@@ -229,6 +239,13 @@ class ShipmentService:
         shipment.status = target
         if target is ShipmentStatus.DISPATCHED:
             shipment.dispatched_at = now
+            shipment.failure_reason = None
+            if courier_id is not None:
+                shipment.courier_id = courier_id
+            for package in shipment.packages:
+                package.status = PackageStatus.DISPATCHED
+        elif target is ShipmentStatus.DISPATCH_FAILED:
+            shipment.failure_reason = reason
         elif target is ShipmentStatus.PICKED_UP:
             shipment.picked_up_at = now
         elif target is ShipmentStatus.DELIVERED:
@@ -254,6 +271,91 @@ class ShipmentService:
             actor_id=principal.user_id,
         )
         return await self.get(shipment_id, principal=principal)
+
+    # --- dispatch --------------------------------------------------------------------
+
+    async def request_dispatch(self, shipment_id: uuid.UUID, *, principal: Principal) -> Shipment:
+        """Hand the shipment to the dispatch workflow.
+
+        Moves it to ``dispatching`` and stages ``shipment.dispatch_requested`` in
+        the same transaction; the orchestrator starts the workflow from that
+        event. The workflow id includes the attempt number, so a redelivered
+        event cannot start the same attempt twice, and a click while a dispatch
+        is running fails here because the status is no longer ``ready_for_dispatch``.
+        """
+        shipment = await self.get(shipment_id, principal=principal)
+        if principal.role not in (UserRole.ADMIN, UserRole.WAREHOUSE_OPERATOR):
+            raise PermissionDeniedError("Only admins and warehouse operators dispatch.")
+        if principal.role is UserRole.WAREHOUSE_OPERATOR and not principal.may_touch_warehouse(
+            shipment.origin_warehouse_id
+        ):
+            raise PermissionDeniedError("This shipment is not from one of your warehouses.")
+        if shipment.status is not ShipmentStatus.READY_FOR_DISPATCH:
+            raise ConflictError(
+                f"Only a shipment that is ready_for_dispatch can be dispatched "
+                f"(this one is {shipment.status.value})."
+            )
+        if not shipment.packages:
+            raise ConflictError("Add at least one package before dispatching.")
+
+        previous = shipment.status
+        shipment.status = ShipmentStatus.DISPATCHING
+        shipment.dispatch_attempts += 1
+        shipment.dispatch_workflow_id = f"dispatch-{shipment.id}-{shipment.dispatch_attempts}"
+        shipment.failure_reason = None
+        self._record(shipment, previous, shipment.status, principal, "dispatch requested")
+        await self.session.flush()
+        emit(
+            self.session,
+            ShipmentEvents.STATUS_CHANGED,
+            shipment,
+            previous_status=previous.value,
+            reason="dispatch requested",
+            actor_id=principal.user_id,
+        )
+        emit(
+            self.session,
+            ShipmentEvents.DISPATCH_REQUESTED,
+            shipment,
+            workflow_id=shipment.dispatch_workflow_id,
+            attempt=shipment.dispatch_attempts,
+            requested_by=principal.user_id,
+        )
+        return await self.get(shipment_id, principal=principal)
+
+    async def generate_labels(self, shipment_id: uuid.UUID, *, principal: Principal) -> Shipment:
+        """Render (or re-render) a PDF label for every package. Idempotent."""
+        shipment = await self.get(shipment_id, principal=principal)
+        if not (principal.is_system or principal.is_admin):
+            raise PermissionDeniedError("Labels are generated by the dispatch workflow.")
+        if not shipment.packages:
+            raise ConflictError("The shipment has no packages to label.")
+        now = datetime.now(UTC)
+        count = len(shipment.packages)
+        for package in sorted(shipment.packages, key=lambda p: p.sequence_no):
+            content = render_label(shipment, package, package_count=count)
+            label = await self.session.get(PackageLabel, package.id)
+            if label is None:
+                self.session.add(PackageLabel(package_id=package.id, content=content))
+            else:
+                label.content = content
+                label.generated_at = now
+            package.label_url = f"/api/v1/shipments/packages/{package.id}/label"
+            package.label_generated_at = now
+            if package.status in (PackageStatus.PENDING, PackageStatus.PACKED):
+                package.status = PackageStatus.LABELLED
+        await self.session.flush()
+        return await self.get(shipment_id, principal=principal)
+
+    async def label(self, package_id: uuid.UUID, *, principal: Principal) -> PackageLabel:
+        package = await self.session.get(Package, package_id)
+        if package is None:
+            raise NotFoundError("Package not found.")
+        await self.get(package.shipment_id, principal=principal)  # visibility
+        label = await self.session.get(PackageLabel, package_id)
+        if label is None:
+            raise NotFoundError("No label has been generated for this package yet.")
+        return label
 
     # --- packages --------------------------------------------------------------------
 

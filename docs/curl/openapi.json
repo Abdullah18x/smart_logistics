@@ -39,6 +39,22 @@
     {
       "name": "Shipments",
       "description": "**shipment service** · Lifecycle, packing, audit trail."
+    },
+    {
+      "name": "Couriers",
+      "description": "**courier service** · Profiles and availability."
+    },
+    {
+      "name": "Assignments",
+      "description": "**courier service** · Who carries which shipment."
+    },
+    {
+      "name": "Dispatches",
+      "description": "**orchestrator service** · Dispatch workflow progress."
+    },
+    {
+      "name": "Tracking",
+      "description": "**tracking service** · Journeys, field updates, public view."
     }
   ],
   "x-tagGroups": [
@@ -67,6 +83,25 @@
       "name": "shipment",
       "tags": [
         "Shipments"
+      ]
+    },
+    {
+      "name": "courier",
+      "tags": [
+        "Couriers",
+        "Assignments"
+      ]
+    },
+    {
+      "name": "orchestrator",
+      "tags": [
+        "Dispatches"
+      ]
+    },
+    {
+      "name": "tracking",
+      "tags": [
+        "Tracking"
       ]
     }
   ],
@@ -174,6 +209,59 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "identity"
+      }
+    },
+    "/api/v1/auth/service-token": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Service account: exchange client credentials for a system token",
+        "description": "For services acting on their own behalf (the orchestrator dispatching a\nshipment), not for people. The token has role `system`, lives a few\nminutes and has no refresh token: the caller asks again.",
+        "operationId": "service_token_api_v1_auth_service_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceToken"
                 }
               }
             }
@@ -3993,6 +4081,166 @@
         "x-service": "shipment"
       }
     },
+    "/api/v1/shipments/{shipment_id}/dispatch": {
+      "post": {
+        "tags": [
+          "Shipments"
+        ],
+        "summary": "Dispatch a shipment (starts the dispatch workflow)",
+        "description": "Accepted, not done: the shipment moves to `dispatching` and the dispatch\nworkflow takes over — validate, confirm stock, print labels, assign a\ncourier, start tracking — then records `dispatched`, or `dispatch_failed`\nwith the reason (after undoing what it did). Follow it on this shipment's\nstatus, or in the Temporal UI under `dispatch_workflow_id`. Retry a failed\ndispatch by moving it back to `ready_for_dispatch`.",
+        "operationId": "dispatch_shipment_api_v1_shipments__shipment_id__dispatch_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShipmentRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for your role or scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Shipment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Illegal transition, concurrent update, or no stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "shipment"
+      }
+    },
+    "/api/v1/shipments/{shipment_id}/labels": {
+      "post": {
+        "tags": [
+          "Shipments"
+        ],
+        "summary": "Generate shipping labels (dispatch workflow)",
+        "description": "One A6 PDF per package with a Code 128 barcode. Called by the dispatch\nworkflow (an admin may re-print); safe to repeat.",
+        "operationId": "generate_labels_api_v1_shipments__shipment_id__labels_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShipmentRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for your role or scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Shipment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Illegal transition, concurrent update, or no stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "shipment"
+      }
+    },
     "/api/v1/shipments/{shipment_id}/cancel": {
       "post": {
         "tags": [
@@ -4172,6 +4420,61 @@
         "x-service": "shipment"
       }
     },
+    "/api/v1/shipments/packages/{package_id}/label": {
+      "get": {
+        "tags": [
+          "Shipments"
+        ],
+        "summary": "Download a package's shipping label (PDF)",
+        "operationId": "download_label_api_v1_shipments_packages__package_id__label_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "package_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Package Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The label PDF",
+            "content": {
+              "application/pdf": {}
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "shipment"
+      }
+    },
     "/api/v1/shipments/packages/{package_id}": {
       "patch": {
         "tags": [
@@ -4249,6 +4552,1456 @@
           }
         },
         "x-service": "shipment"
+      }
+    },
+    "/api/v1/couriers/assignments": {
+      "post": {
+        "tags": [
+          "Assignments"
+        ],
+        "summary": "Assign a courier to a shipment (automatic or chosen)",
+        "description": "Called by the dispatch workflow. Without `courier_id` the best courier is\nchosen: same city as the warehouse, available, below capacity, based at\nthis warehouse first, then least loaded. Candidates are locked with\n`SKIP LOCKED`, so concurrent dispatches never double-book a courier.\nRepeating the call for the same shipment returns the same assignment.",
+        "operationId": "assign_api_v1_couriers_assignments_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentResult"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Already assigned: returned as is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown warehouse or courier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "no_courier_available, courier_unavailable, already_assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      },
+      "get": {
+        "tags": [
+          "Assignments"
+        ],
+        "summary": "List assignments",
+        "operationId": "list_assignments_api_v1_couriers_assignments_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shipment Id"
+            }
+          },
+          {
+            "name": "courier_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Courier Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssignmentStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AssignmentRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/assignments/mine": {
+      "get": {
+        "tags": [
+          "Assignments"
+        ],
+        "summary": "The calling courier's jobs",
+        "operationId": "my_assignments_api_v1_couriers_assignments_mine_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssignmentStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "active",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AssignmentRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/assignments/{shipment_id}/reassign": {
+      "post": {
+        "tags": [
+          "Assignments"
+        ],
+        "summary": "Hand a shipment to another courier (manual override)",
+        "description": "Releases the current assignment and starts a new one, in one transaction.\nWithout `courier_id` the best *other* courier is chosen. Publishes\n`courier.unassigned` then `courier.assigned`; Shipment follows.",
+        "operationId": "reassign_api_v1_couriers_assignments__shipment_id__reassign_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReassignRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/assignments/{shipment_id}/release": {
+      "post": {
+        "tags": [
+          "Assignments"
+        ],
+        "summary": "Release a shipment's courier (dispatch compensation)",
+        "description": "A no-op (returns null) when nothing is assigned, so compensation can retry.",
+        "operationId": "release_api_v1_couriers_assignments__shipment_id__release_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AssignmentRead"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Release Api V1 Couriers Assignments  Shipment Id  Release Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers": {
+      "post": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Create a courier profile",
+        "description": "`user_id` links the profile to the partner's login; Identity mirrors the\nlink from the `courier.created` event, so their token carries `courier_id`.",
+        "operationId": "create_courier_api_v1_couriers_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourierCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      },
+      "get": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "List couriers",
+        "operationId": "list_couriers_api_v1_couriers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "City"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CourierStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "availability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Availability"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Availability"
+            }
+          },
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Warehouse Id"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CourierRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/me": {
+      "get": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "The calling courier's own profile",
+        "operationId": "my_profile_api_v1_couriers_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/me/availability": {
+      "put": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Go on shift, take a break or go offline",
+        "description": "Only `available` couriers receive new automatic assignments. Going offline\nkeeps the shipments already carried.",
+        "operationId": "set_my_availability_api_v1_couriers_me_availability_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvailabilityUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/{courier_id}": {
+      "get": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Fetch a courier",
+        "operationId": "get_courier_api_v1_couriers__courier_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "courier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Courier Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      },
+      "patch": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Update a courier profile",
+        "operationId": "update_courier_api_v1_couriers__courier_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "courier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Courier Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourierUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      },
+      "delete": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Deactivate (soft delete) a courier",
+        "operationId": "delete_courier_api_v1_couriers__courier_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "courier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Courier Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "courier_has_active_assignments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/{courier_id}/status": {
+      "patch": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Suspend or reactivate a courier",
+        "description": "Suspending also takes the courier offline; shipments they carry stay with\nthem until reassigned.",
+        "operationId": "set_courier_status_api_v1_couriers__courier_id__status_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "courier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Courier Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourierStatusUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/{courier_id}/availability": {
+      "put": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Set a courier's availability on their behalf",
+        "operationId": "set_availability_api_v1_couriers__courier_id__availability_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "courier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Courier Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvailabilityUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/couriers/{courier_id}/restore": {
+      "post": {
+        "tags": [
+          "Couriers"
+        ],
+        "summary": "Restore a deleted courier",
+        "operationId": "restore_courier_api_v1_couriers__courier_id__restore_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "courier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Courier Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourierRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "courier"
+      }
+    },
+    "/api/v1/dispatches/{workflow_id}": {
+      "get": {
+        "tags": [
+          "Dispatches"
+        ],
+        "summary": "Progress of one dispatch workflow",
+        "description": "`workflow_id` is the shipment's `dispatch_workflow_id`\n(`dispatch-<shipment>-<attempt>`). Shows the current step while running and\nthe outcome once finished; the Temporal UI (:8233) has the full history.",
+        "operationId": "get_dispatch_api_v1_dispatches__workflow_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchView"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "orchestrator"
+      }
+    },
+    "/api/v1/tracking/journeys": {
+      "post": {
+        "tags": [
+          "Tracking"
+        ],
+        "summary": "Open a shipment's journey (dispatch workflow)",
+        "operationId": "open_journey_api_v1_tracking_journeys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JourneyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JourneyRead"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Already open: returned as is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JourneyRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "tracking"
+      }
+    },
+    "/api/v1/tracking/journeys/{shipment_id}/cancel": {
+      "post": {
+        "tags": [
+          "Tracking"
+        ],
+        "summary": "Cancel a journey (dispatch compensation)",
+        "operationId": "cancel_journey_api_v1_tracking_journeys__shipment_id__cancel_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JourneyCancel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JourneyRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "tracking"
+      }
+    },
+    "/api/v1/tracking/journeys/{shipment_id}": {
+      "get": {
+        "tags": [
+          "Tracking"
+        ],
+        "summary": "A shipment's journey with its timeline",
+        "operationId": "get_journey_api_v1_tracking_journeys__shipment_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Shipment Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JourneyDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "tracking"
+      }
+    },
+    "/api/v1/tracking/updates": {
+      "post": {
+        "tags": [
+          "Tracking"
+        ],
+        "summary": "Report a field update (courier)",
+        "description": "Pickup, progress, delivery attempts, location. Safe to retry: the same\n`event_id` is recorded once and comes back as `duplicate`. Milestones reach\nthe shipment through the delivery workflow, which validates them.",
+        "operationId": "report_update_api_v1_tracking_updates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "tracking"
+      }
+    },
+    "/api/v1/tracking/updates/batch": {
+      "post": {
+        "tags": [
+          "Tracking"
+        ],
+        "summary": "Report many field updates at once (offline sync)",
+        "description": "For a device coming back online: each update is processed on its own and\ngets its own result, in occurred order; duplicates and rejections never\nfail the batch.",
+        "operationId": "report_batch_api_v1_tracking_updates_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "tracking"
+      }
+    },
+    "/api/v1/tracking/public/{reference_no}": {
+      "get": {
+        "tags": [
+          "Tracking"
+        ],
+        "summary": "Public tracking page data (no login)",
+        "description": "What a customer sees with their tracking number: milestones and times,\nnever the courier's identity or position.",
+        "operationId": "public_tracking_api_v1_tracking_public__reference_no__get",
+        "parameters": [
+          {
+            "name": "reference_no",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Reference No"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicTracking"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "tracking"
       }
     }
   },
@@ -4554,6 +6307,808 @@
         ],
         "title": "AddressRead"
       },
+      "AssignmentMethod": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "AssignmentMethod"
+      },
+      "AssignmentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "courier_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Courier Id"
+          },
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssignmentStatus"
+          },
+          "method": {
+            "$ref": "#/components/schemas/AssignmentMethod"
+          },
+          "assigned_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned By"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Assigned At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "end_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "courier_id",
+          "shipment_id",
+          "warehouse_id",
+          "status",
+          "method",
+          "assigned_by",
+          "reason",
+          "assigned_at",
+          "ended_at",
+          "end_reason"
+        ],
+        "title": "AssignmentRead"
+      },
+      "AssignmentRequest": {
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id",
+            "description": "Origin warehouse: couriers are matched by city."
+          },
+          "courier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courier Id",
+            "description": "Pick this courier (manual); omit to choose automatically."
+          },
+          "total_weight_g": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Weight G",
+            "description": "Excludes couriers whose max weight is lower."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shipment_id",
+          "warehouse_id"
+        ],
+        "title": "AssignmentRequest",
+        "description": "Assign a courier to a shipment. Idempotent by ``shipment_id``.",
+        "example": {
+          "shipment_id": "00000000-0000-0000-0000-000000000000",
+          "total_weight_g": 2400,
+          "warehouse_id": "00000000-0000-0000-0000-000000000000"
+        }
+      },
+      "AssignmentResult": {
+        "properties": {
+          "assignment": {
+            "$ref": "#/components/schemas/AssignmentRead"
+          },
+          "courier": {
+            "$ref": "#/components/schemas/CourierRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment",
+          "courier"
+        ],
+        "title": "AssignmentResult"
+      },
+      "AssignmentStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "released",
+          "completed"
+        ],
+        "title": "AssignmentStatus"
+      },
+      "Availability": {
+        "type": "string",
+        "enum": [
+          "offline",
+          "available",
+          "on_break"
+        ],
+        "title": "Availability",
+        "description": "Whether the courier is taking work right now. Set by the courier."
+      },
+      "AvailabilityUpdate": {
+        "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/Availability"
+          }
+        },
+        "type": "object",
+        "required": [
+          "availability"
+        ],
+        "title": "AvailabilityUpdate",
+        "example": {
+          "availability": "available"
+        }
+      },
+      "BatchResult": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateResult"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "recorded": {
+            "type": "integer",
+            "title": "Recorded"
+          },
+          "duplicates": {
+            "type": "integer",
+            "title": "Duplicates"
+          },
+          "rejected": {
+            "type": "integer",
+            "title": "Rejected"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results",
+          "recorded",
+          "duplicates",
+          "rejected"
+        ],
+        "title": "BatchResult"
+      },
+      "CourierCreate": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Full Name"
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "pattern": "^\\+?[0-9\\s\\-()]{7,32}$",
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "vehicle_type": {
+            "$ref": "#/components/schemas/VehicleType"
+          },
+          "vehicle_plate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Plate"
+          },
+          "max_active_shipments": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Active Shipments",
+            "description": "Capacity: concurrent shipments."
+          },
+          "max_weight_g": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Weight G",
+            "description": "Heaviest load, in grams."
+          },
+          "home_city": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 2,
+            "title": "Home City"
+          },
+          "home_warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Warehouse Id",
+            "description": "Preferred for automatic assignment from this warehouse."
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 16,
+            "minLength": 3,
+            "pattern": "^[A-Z0-9\\-]+$",
+            "title": "Code"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "The Identity account this partner signs in with, if any."
+          }
+        },
+        "type": "object",
+        "required": [
+          "full_name",
+          "phone",
+          "vehicle_type",
+          "max_active_shipments",
+          "home_city",
+          "code"
+        ],
+        "title": "CourierCreate",
+        "example": {
+          "code": "CR-0101",
+          "full_name": "Usman Tariq",
+          "home_city": "Karachi",
+          "max_active_shipments": 8,
+          "max_weight_g": 30000,
+          "phone": "+923001119999",
+          "vehicle_plate": "KHI-4471",
+          "vehicle_type": "motorcycle"
+        }
+      },
+      "CourierRead": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Full Name"
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 32,
+            "pattern": "^\\+?[0-9\\s\\-()]{7,32}$",
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "vehicle_type": {
+            "$ref": "#/components/schemas/VehicleType"
+          },
+          "vehicle_plate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Plate"
+          },
+          "max_active_shipments": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Active Shipments",
+            "description": "Capacity: concurrent shipments."
+          },
+          "max_weight_g": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Weight G",
+            "description": "Heaviest load, in grams."
+          },
+          "home_city": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 2,
+            "title": "Home City"
+          },
+          "home_warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Warehouse Id",
+            "description": "Preferred for automatic assignment from this warehouse."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CourierStatus"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/Availability"
+          },
+          "active_assignments": {
+            "type": "integer",
+            "title": "Active Assignments"
+          },
+          "last_assigned_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Assigned At"
+          },
+          "availability_changed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability Changed At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "full_name",
+          "phone",
+          "vehicle_type",
+          "max_active_shipments",
+          "home_city",
+          "id",
+          "code",
+          "user_id",
+          "status",
+          "availability",
+          "active_assignments",
+          "last_assigned_at",
+          "availability_changed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CourierRead"
+      },
+      "CourierStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "suspended"
+        ],
+        "title": "CourierStatus",
+        "description": "Whether the partner may work at all. Set by admins."
+      },
+      "CourierStatusUpdate": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/CourierStatus"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CourierStatusUpdate"
+      },
+      "CourierUpdate": {
+        "properties": {
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "pattern": "^\\+?[0-9\\s\\-()]{7,32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "vehicle_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VehicleType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vehicle_plate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Plate"
+          },
+          "max_active_shipments": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Active Shipments"
+          },
+          "max_weight_g": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Weight G"
+          },
+          "home_city": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home City"
+          },
+          "home_warehouse_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Warehouse Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "type": "object",
+        "title": "CourierUpdate"
+      },
+      "DispatchView": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "done": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Done",
+            "default": []
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "run_id",
+          "status",
+          "started_at",
+          "closed_at"
+        ],
+        "title": "DispatchView"
+      },
+      "EndAssignmentRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "EndAssignmentRequest"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -4694,6 +7249,356 @@
         ],
         "title": "InventoryItemRead"
       },
+      "JourneyCancel": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "JourneyCancel"
+      },
+      "JourneyCreate": {
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "reference_no": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Reference No"
+          },
+          "courier_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Courier Id"
+          },
+          "origin_warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Origin Warehouse Id"
+          },
+          "destination_city": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Destination City"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shipment_id",
+          "reference_no",
+          "courier_id",
+          "origin_warehouse_id",
+          "destination_city"
+        ],
+        "title": "JourneyCreate",
+        "description": "Opened by the dispatch workflow. Idempotent by ``shipment_id``."
+      },
+      "JourneyDetail": {
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "reference_no": {
+            "type": "string",
+            "title": "Reference No"
+          },
+          "courier_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Courier Id"
+          },
+          "origin_warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Origin Warehouse Id"
+          },
+          "destination_city": {
+            "type": "string",
+            "title": "Destination City"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JourneyStatus"
+          },
+          "milestone": {
+            "$ref": "#/components/schemas/Milestone"
+          },
+          "milestone_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Milestone At"
+          },
+          "delivery_attempts": {
+            "type": "integer",
+            "title": "Delivery Attempts"
+          },
+          "last_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "cancel_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Reason"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TrackingEventRead"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shipment_id",
+          "reference_no",
+          "courier_id",
+          "origin_warehouse_id",
+          "destination_city",
+          "status",
+          "milestone",
+          "milestone_at",
+          "delivery_attempts",
+          "started_at",
+          "updated_at",
+          "events"
+        ],
+        "title": "JourneyDetail"
+      },
+      "JourneyRead": {
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "reference_no": {
+            "type": "string",
+            "title": "Reference No"
+          },
+          "courier_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Courier Id"
+          },
+          "origin_warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Origin Warehouse Id"
+          },
+          "destination_city": {
+            "type": "string",
+            "title": "Destination City"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JourneyStatus"
+          },
+          "milestone": {
+            "$ref": "#/components/schemas/Milestone"
+          },
+          "milestone_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Milestone At"
+          },
+          "delivery_attempts": {
+            "type": "integer",
+            "title": "Delivery Attempts"
+          },
+          "last_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "cancel_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shipment_id",
+          "reference_no",
+          "courier_id",
+          "origin_warehouse_id",
+          "destination_city",
+          "status",
+          "milestone",
+          "milestone_at",
+          "delivery_attempts",
+          "started_at",
+          "updated_at"
+        ],
+        "title": "JourneyRead"
+      },
+      "JourneyStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "completed",
+          "cancelled"
+        ],
+        "title": "JourneyStatus"
+      },
+      "Location": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude"
+          },
+          "accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy M"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "Location"
+      },
+      "LocationRead": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude"
+          },
+          "accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy M"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude",
+          "at"
+        ],
+        "title": "LocationRead"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -4782,6 +7687,20 @@
           "message"
         ],
         "title": "MessageResponse"
+      },
+      "Milestone": {
+        "type": "string",
+        "enum": [
+          "dispatched",
+          "picked_up",
+          "in_transit",
+          "out_for_delivery",
+          "delivery_failed",
+          "delivered",
+          "return_initiated",
+          "returned"
+        ],
+        "title": "Milestone"
       },
       "OperatingHoursRead": {
         "properties": {
@@ -5132,6 +8051,70 @@
         "type": "object",
         "title": "PackageUpdate"
       },
+      "Page_AssignmentRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total matching records, ignoring pagination."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[AssignmentRead]"
+      },
+      "Page_CourierRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CourierRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total matching records, ignoring pagination."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CourierRead]"
+      },
       "Page_InventoryItemRead_": {
         "properties": {
           "items": {
@@ -5351,6 +8334,80 @@
         ],
         "title": "Problem",
         "description": "Error body used for every non-2xx response, by every service."
+      },
+      "PublicTracking": {
+        "properties": {
+          "reference_no": {
+            "type": "string",
+            "title": "Reference No"
+          },
+          "milestone": {
+            "$ref": "#/components/schemas/Milestone"
+          },
+          "milestone_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Milestone At"
+          },
+          "destination_city": {
+            "type": "string",
+            "title": "Destination City"
+          },
+          "delivery_attempts": {
+            "type": "integer",
+            "title": "Delivery Attempts"
+          },
+          "timeline": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Timeline"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reference_no",
+          "milestone",
+          "milestone_at",
+          "destination_city",
+          "delivery_attempts",
+          "timeline"
+        ],
+        "title": "PublicTracking",
+        "description": "What a customer may see: no courier identity, no exact positions."
+      },
+      "ReassignRequest": {
+        "properties": {
+          "courier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courier Id",
+            "description": "New courier; omit to choose automatically (never the current)."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "ReassignRequest",
+        "example": {
+          "reason": "Courier's vehicle broke down"
+        }
       },
       "RefreshRequest": {
         "properties": {
@@ -5661,6 +8718,57 @@
           "same_day"
         ],
         "title": "ServiceLevel"
+      },
+      "ServiceToken": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Access token lifetime in seconds."
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in"
+        ],
+        "title": "ServiceToken"
+      },
+      "ServiceTokenRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "client_secret"
+        ],
+        "title": "ServiceTokenRequest",
+        "description": "OAuth2-style client credentials for a service account.",
+        "example": {
+          "client_id": "orchestrator",
+          "client_secret": "orchestrator-dev-secret"
+        }
       },
       "SessionRead": {
         "properties": {
@@ -6130,6 +9238,11 @@
             ],
             "title": "Dispatch Workflow Id"
           },
+          "dispatch_attempts": {
+            "type": "integer",
+            "title": "Dispatch Attempts",
+            "default": 0
+          },
           "version": {
             "type": "integer",
             "title": "Version"
@@ -6195,6 +9308,19 @@
               }
             ],
             "title": "Reason"
+          },
+          "courier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courier Id",
+            "description": "Set by the dispatch workflow when recording `dispatched`."
           }
         },
         "type": "object",
@@ -7054,6 +10180,248 @@
         ],
         "title": "TokenPair"
       },
+      "TrackingEventRead": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/UpdateType"
+          },
+          "milestone": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Milestone"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "courier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courier Id"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "type",
+          "occurred_at",
+          "received_at",
+          "source"
+        ],
+        "title": "TrackingEventRead"
+      },
+      "TrackingUpdate": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          },
+          "shipment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Shipment Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/UpdateType"
+          },
+          "milestone": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Milestone"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "shipment_id",
+          "type",
+          "occurred_at"
+        ],
+        "title": "TrackingUpdate",
+        "description": "One field update from a courier's device.\n\n``event_id`` is generated on the device when the update happens, so a\ndevice that retries (or re-syncs after being offline) sends the same id\nand the update is recorded once. ``occurred_at`` is when it happened, not\nwhen it arrived: late updates are placed correctly on the timeline.",
+        "example": {
+          "event_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+          "location": {
+            "latitude": 24.8607,
+            "longitude": 67.0011
+          },
+          "milestone": "picked_up",
+          "occurred_at": "2026-10-12T09:15:00Z",
+          "shipment_id": "00000000-0000-0000-0000-000000000000",
+          "type": "milestone"
+        }
+      },
+      "UpdateBatch": {
+        "properties": {
+          "updates": {
+            "items": {
+              "$ref": "#/components/schemas/TrackingUpdate"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Updates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "updates"
+        ],
+        "title": "UpdateBatch"
+      },
+      "UpdateResult": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "`recorded`, `duplicate` or `rejected`"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "status"
+        ],
+        "title": "UpdateResult"
+      },
+      "UpdateType": {
+        "type": "string",
+        "enum": [
+          "milestone",
+          "location"
+        ],
+        "title": "UpdateType"
+      },
       "UserCreate": {
         "properties": {
           "email": {
@@ -7196,7 +10564,8 @@
           "admin",
           "customer_support",
           "warehouse_operator",
-          "courier"
+          "courier",
+          "system"
         ],
         "title": "UserRole"
       },
@@ -7329,6 +10698,17 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VehicleType": {
+        "type": "string",
+        "enum": [
+          "bicycle",
+          "motorcycle",
+          "car",
+          "van",
+          "truck"
+        ],
+        "title": "VehicleType"
       },
       "WarehouseAssignmentCreate": {
         "properties": {

@@ -1,7 +1,7 @@
 # Database Reference
 
-**Engine:** PostgreSQL 16 · **Databases:** 4 (one per service) · **Service tables:** 17 · **Platform tables in each:** 3
-**Generated:** 2026-10-12 by `scripts/generate_db_docs.py` (`./dev.sh docs`). Do not edit by hand.
+**Engine:** PostgreSQL 16 · **Databases:** 5 (one per service) · **Service tables:** 21 · **Platform tables in each:** 3 · plus MongoDB for tracking ([below](#tracking-mongodb))
+**Generated:** 2026-10-13 by `scripts/generate_db_docs.py` (`./dev.sh docs`). Do not edit by hand.
 
 Generated from the SQLAlchemy models, which the Alembic migrations are checked against (`./dev.sh check`). Table descriptions are the model docstrings. Design rationale lives in [ARCHITECTURE.md](ARCHITECTURE.md) and the [ADRs](adr/).
 
@@ -16,7 +16,8 @@ Generated from the SQLAlchemy models, which the Alembic migrations are checked a
 | **identity** | `identity-db` (:5441) | Accounts, sessions and operator warehouse scopes. | 3 |
 | **warehouse** | `warehouse-db` (:5442) | Facilities, their zones and opening hours. | 3 |
 | **inventory** | `inventory-db` (:5443) | The SKU catalog, stock positions, holds, the stock ledger, a warehouse replica. | 5 |
-| **shipment** | `shipment-db` (:5444) | Shipments with their items, packages and audit trail, a warehouse replica. | 6 |
+| **shipment** | `shipment-db` (:5444) | Shipments with their items, packages and audit trail, a warehouse replica. | 7 |
+| **courier** | `courier-db` (:5445) | Courier profiles, shipment assignments with their history, a warehouse replica. | 3 |
 
 ### Conventions
 
@@ -40,7 +41,9 @@ A column that names another service's row is a **plain id with no foreign key**.
 | `inventory.inventory_items.warehouse_id`, `shipment.shipments.origin_warehouse_id` | a warehouse | checked against the local `warehouse_refs` replica, built from `warehouse.*` events |
 | `inventory.inventory_reservations.shipment_id` | a shipment | the hold is confirmed on `shipment.created`, committed on dispatch, released on cancel |
 | `shipment.shipment_items.sku_id` | a SKU | SKU code, name and weight are **snapshotted** onto the line when stock is held |
-| `shipment.shipments.courier_id`, `identity.users.courier_id` | a courier profile | the Courier service (Week 2) |
+| `shipment.shipments.courier_id`, `identity.users.courier_id` | a courier profile | set from `courier.assigned` / `courier.*` events |
+| `courier.courier_assignments.shipment_id`, `.warehouse_id` | a shipment, a warehouse | assigned by the dispatch workflow; ended by `shipment.status_changed` |
+| `courier.couriers.user_id` | a login | identity mirrors it as `users.courier_id` |
 
 Display fields are copied (`origin_warehouse_code`, `sku_name`) so a read never needs another service.
 
@@ -548,6 +551,7 @@ erDiagram
     shipments ||--o{ packages : "shipment_id"
     shipments ||--o{ shipment_items : "shipment_id"
     shipments ||--o{ shipment_status_history : "shipment_id"
+    packages ||--o{ package_labels : "package_id"
     addresses {
         varchar contact_name
         varchar contact_phone
@@ -599,6 +603,7 @@ erDiagram
         varchar failure_reason
         varchar special_instructions
         varchar dispatch_workflow_id
+        integer dispatch_attempts
         integer version
         uuid id PK
         timestamptz created_at
@@ -644,6 +649,11 @@ erDiagram
         timestamptz occurred_at
         uuid id PK
     }
+    package_labels {
+        uuid package_id PK
+        bytea content
+        timestamptz generated_at
+    }
 ```
 
 ### `addresses`
@@ -669,8 +679,8 @@ A snapshot of where this parcel was sent — never a shared customer address.
 | `created_at` | timestamptz | no | default `now()` |
 | `updated_at` | timestamptz | no | default `now()` |
 
-- **check** `ck_addresses_latitude_range`: `latitude IS NULL OR (latitude BETWEEN -90 AND 90)`
 - **check** `ck_addresses_longitude_range`: `longitude IS NULL OR (longitude BETWEEN -180 AND 180)`
+- **check** `ck_addresses_latitude_range`: `latitude IS NULL OR (latitude BETWEEN -90 AND 90)`
 
 ### `warehouse_refs`
 
@@ -720,18 +730,19 @@ both apply (the monolith incremented it by hand and checked nothing).
 | `failure_reason` | varchar(500) | yes |  |
 | `special_instructions` | varchar(500) | yes |  |
 | `dispatch_workflow_id` | varchar(255) | yes |  |
+| `dispatch_attempts` | integer | no | default `0` |
 | `version` | integer | no | default `1` |
 | `created_at` | timestamptz | no | default `now()` |
 | `updated_at` | timestamptz | no | default `now()` |
 | `deleted_at` | timestamptz | yes |  |
 | `deleted_by` | uuid | yes |  |
 
-- **index** `ix_shipments_status_priority` `(status, priority)`
-- **index** `ix_shipments_courier_status` `(courier_id, status)`
-- **index** `ix_shipments_warehouse_status` `(origin_warehouse_id, status)`
 - **index** `ix_shipments_active_status` `(status, created_at)` where `deleted_at IS NULL`
-- **check** `ck_shipments_weight_non_negative`: `total_weight_g >= 0`
+- **index** `ix_shipments_courier_status` `(courier_id, status)`
+- **index** `ix_shipments_status_priority` `(status, priority)`
+- **index** `ix_shipments_warehouse_status` `(origin_warehouse_id, status)`
 - **check** `ck_shipments_attempts_non_negative`: `delivery_attempt_count >= 0`
+- **check** `ck_shipments_weight_non_negative`: `total_weight_g >= 0`
 
 ### `packages`
 
@@ -797,6 +808,166 @@ The audit trail the brief asks for: one immutable row per transition.
 | `occurred_at` | timestamptz | no | default `now()` |
 
 - **index** `ix_shipment_status_history_shipment` `(shipment_id, occurred_at)`
+
+### `package_labels`
+
+The printable shipping label (PDF) for one package.
+
+Kept in the database rather than on a pod's disk, so any replica of the
+service can serve it. Regenerating replaces it.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `package_id` | uuid | no | primary key · → `packages.id` (cascade) |
+| `content` | bytea | no |  |
+| `generated_at` | timestamptz | no | default `now()` |
+
+---
+
+## courier
+
+Courier profiles, shipment assignments with their history, a warehouse replica.
+
+```mermaid
+erDiagram
+    couriers ||--o{ courier_assignments : "courier_id"
+    couriers {
+        varchar code
+        uuid user_id
+        varchar full_name
+        varchar phone
+        varchar email
+        vehicle_type vehicle_type
+        varchar vehicle_plate
+        integer max_active_shipments
+        integer max_weight_g
+        varchar home_city
+        uuid home_warehouse_id
+        courier_status status
+        courier_availability availability
+        integer active_assignments
+        timestamptz last_assigned_at
+        timestamptz availability_changed_at
+        integer version
+        uuid id PK
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+        uuid deleted_by
+    }
+    warehouse_refs {
+        uuid id PK
+        varchar code
+        varchar name
+        varchar status
+        varchar city
+        boolean is_deleted
+        timestamptz source_updated_at
+        timestamptz synced_at
+    }
+    courier_assignments {
+        uuid courier_id FK
+        uuid shipment_id
+        uuid warehouse_id
+        assignment_status status
+        assignment_method method
+        uuid assigned_by
+        varchar reason
+        timestamptz assigned_at
+        timestamptz ended_at
+        varchar end_reason
+        uuid id PK
+    }
+```
+
+### `couriers`
+
+A delivery partner's fleet profile.
+
+Separate from the login account: a partner can exist before (or without) an
+account, and vehicle, capacity and availability change with fleet operations,
+not with authentication. `user_id` links the profile to an Identity user;
+Identity mirrors the link as `users.courier_id` from `courier.*` events, so
+the courier's access token names this profile.
+
+`active_assignments` is the current load, maintained in the same
+transaction as every assignment change; the check constraint keeps it within
+capacity whatever the code above does.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `code` | varchar(16) | no | unique |
+| `user_id` | uuid | yes | unique |
+| `full_name` | varchar(200) | no |  |
+| `phone` | varchar(32) | no |  |
+| `email` | varchar(320) | yes |  |
+| `vehicle_type` | vehicle_type | no |  |
+| `vehicle_plate` | varchar(32) | yes |  |
+| `max_active_shipments` | integer | no |  |
+| `max_weight_g` | integer | yes |  |
+| `home_city` | varchar(100) | no |  |
+| `home_warehouse_id` | uuid | yes |  |
+| `status` | courier_status | no | default `active` |
+| `availability` | courier_availability | no | default `offline` |
+| `active_assignments` | integer | no | default `0` |
+| `last_assigned_at` | timestamptz | yes |  |
+| `availability_changed_at` | timestamptz | yes |  |
+| `version` | integer | no | default `1` |
+| `created_at` | timestamptz | no | default `now()` |
+| `updated_at` | timestamptz | no | default `now()` |
+| `deleted_at` | timestamptz | yes |  |
+| `deleted_by` | uuid | yes |  |
+
+- **index** `ix_couriers_assignable` `(home_city, availability, status)` where `deleted_at IS NULL`
+- **check** `ck_couriers_weight_positive`: `max_weight_g IS NULL OR max_weight_g > 0`
+- **check** `ck_couriers_load_within_capacity`: `active_assignments >= 0 AND active_assignments <= max_active_shipments`
+- **check** `ck_couriers_capacity_positive`: `max_active_shipments > 0`
+
+### `warehouse_refs`
+
+Local, read-only copy of warehouse facts, kept current from events.
+
+Automatic assignment matches couriers to the warehouse's city without
+calling the Warehouse service.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `code` | varchar(16) | no |  |
+| `name` | varchar(150) | no |  |
+| `status` | varchar(32) | no |  |
+| `city` | varchar(100) | no |  |
+| `is_deleted` | boolean | no | default `false` |
+| `source_updated_at` | timestamptz | no |  |
+| `synced_at` | timestamptz | no | default `now()` |
+
+### `courier_assignments`
+
+Who carries which shipment, with its full history.
+
+A reassignment releases the old row and inserts a new one, so the table is
+the record of every hand-over. At most one row per shipment is `active`
+(partial unique index), which is what makes "assign" safe to retry and
+impossible to double-book.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `courier_id` | uuid | no | → `couriers.id` (restrict) |
+| `shipment_id` | uuid | no |  |
+| `warehouse_id` | uuid | no |  |
+| `status` | assignment_status | no | default `active` |
+| `method` | assignment_method | no |  |
+| `assigned_by` | uuid | yes |  |
+| `reason` | varchar(500) | yes |  |
+| `assigned_at` | timestamptz | no | default `now()` |
+| `ended_at` | timestamptz | yes |  |
+| `end_reason` | varchar(500) | yes |  |
+
+- **index** `ix_courier_assignments_shipment` `(shipment_id, assigned_at)`
+- **unique index** `uq_courier_assignments_active_shipment` `(shipment_id)` where `status = 'active'`
+- **index** `ix_courier_assignments_courier_status` `(courier_id, status)`
 
 ---
 
@@ -864,3 +1035,44 @@ row and is skipped, even if another pod is processing it at that moment.
 | `event_id` | uuid | no | primary key |
 | `event_type` | varchar(100) | no |  |
 | `processed_at` | timestamptz | no | default `now()` |
+
+---
+
+## tracking (MongoDB)
+
+Journeys and field updates. Every write is a single-document operation, so nothing needs a multi-document transaction.
+
+### journeys
+
+One document per dispatched shipment.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | string | the shipment id |
+| `reference_no` | string | unique index; the public tracking number |
+| `courier_id` | string | the courier allowed to report; follows `courier.assigned` |
+| `origin_warehouse_id`, `destination_city` | string | for scoping and display |
+| `status` | string | `active`, `completed`, `cancelled` (a failed dispatch; reopened on retry) |
+| `milestone`, `milestone_at` | string, date | latest milestone by **occurred** time; only ever moves forward |
+| `delivery_attempts` | int | failed attempts recorded |
+| `last_location` | object | newest position fix: `latitude`, `longitude`, `accuracy_m`, `at` |
+| `started_at`, `updated_at`, `completed_at`, `cancel_reason` | date, string | |
+
+Indexes: `reference_no` (unique), `courier_active` (`courier_id`, `status`).
+
+### tracking_events
+
+Append-only timeline; each document is also its own outbox entry.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | string | the device-generated `event_id`: a retried upload is rejected by the primary key |
+| `shipment_id` | string | |
+| `type` | string | `milestone` or `location` |
+| `milestone` | string | `picked_up`, `in_transit`, `out_for_delivery`, `delivery_failed`, `delivered` from the field; `dispatched`, `return_initiated`, `returned` from the system |
+| `occurred_at`, `received_at` | date | device time and server time |
+| `courier_id`, `location`, `failure_reason`, `note` | | |
+| `source` | string | `courier`, `dispatch` or `shipment` |
+| `published` | bool | `false` until the worker's relay publishes `tracking.milestone_recorded`; `claimed_until` is the relay lease |
+
+Indexes: `shipment_timeline` (`shipment_id`, `occurred_at` desc), `outbox` (`published`, `received_at`).

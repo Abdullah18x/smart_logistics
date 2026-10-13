@@ -19,6 +19,7 @@ os.environ.update(
     JWT_PRIVATE_KEY=PRIVATE_PEM,
     JWT_KEY_ID="test-key",
     LOG_JSON="false",
+    SERVICE_CLIENTS='{"orchestrator": "orchestrator-test-secret"}',
 )
 
 import httpx  # noqa: E402

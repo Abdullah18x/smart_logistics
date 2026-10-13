@@ -17,6 +17,10 @@ class UserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def linked_to_courier(self, courier_id: uuid.UUID) -> list[User]:
+        rows = await self.session.scalars(select(User).where(User.courier_id == courier_id))
+        return list(rows)
+
     async def get(self, user_id: uuid.UUID, *, include_deleted: bool = False) -> User | None:
         user = await self.session.get(User, user_id)
         if user is None or (user.deleted_at is not None and not include_deleted):

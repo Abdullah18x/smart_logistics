@@ -23,6 +23,17 @@ class Settings(ServiceSettings):
     max_failed_login_attempts: int = 5
     account_lockout_minutes: int = 15
 
+    # --- Service accounts -------------------------------------------------------
+    service_clients: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "client_id -> client_secret for service accounts allowed to obtain a "
+            '`system` token, as JSON: SERVICE_CLIENTS=\'{"orchestrator": "..."}\'. '
+            "Mounted from a secret store outside local development."
+        ),
+    )
+    service_token_ttl_minutes: int = 5
+
     # --- Other services ---------------------------------------------------------
     warehouse_service_url: str = "http://localhost:8002"
 

@@ -52,6 +52,8 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # The database enum holds only the four human roles (migration 0001);
+    # `system` exists in UserRole for service-account tokens and is rejected here.
     role: Mapped[UserRole] = mapped_column(pg_enum(UserRole, "user_role"), nullable=False)
     status: Mapped[UserStatus] = mapped_column(
         pg_enum(UserStatus, "user_status"),

@@ -19,3 +19,15 @@ curl -s http://localhost:8003/health/ready | jq
 # shipment: liveness, then readiness (checks its own database)
 curl -s http://localhost:8004/health | jq
 curl -s http://localhost:8004/health/ready | jq
+
+# courier: liveness, then readiness (checks its own database)
+curl -s http://localhost:8005/health | jq
+curl -s http://localhost:8005/health/ready | jq
+
+# orchestrator: liveness, then readiness (checks its own database)
+curl -s http://localhost:8006/health | jq
+curl -s http://localhost:8006/health/ready | jq
+
+# tracking: liveness, then readiness (checks its own database)
+curl -s http://localhost:8007/health | jq
+curl -s http://localhost:8007/health/ready | jq

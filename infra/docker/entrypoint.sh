@@ -78,8 +78,12 @@ PYTHON
 fi
 
 if is_true "${RUN_MIGRATIONS:-false}"; then
-    log "applying ${SERVICE} migrations"
-    alembic -c /app/alembic.ini upgrade head
+    if [ -f /app/alembic.ini ]; then
+        log "applying ${SERVICE} migrations"
+        alembic -c /app/alembic.ini upgrade head
+    else
+        log "${SERVICE} has no SQL database, no migrations to apply"
+    fi
 fi
 
 if is_true "${RUN_SEED:-false}"; then

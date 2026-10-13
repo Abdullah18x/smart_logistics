@@ -19,7 +19,14 @@ from sl_platform.telemetry import setup_telemetry
 Hook = Callable[[], Awaitable[Any]]
 
 
-def health_router(settings: ServiceSettings, database: Database) -> APIRouter:
+ReadinessCheck = Callable[[], Awaitable[None]]
+
+
+def health_router(
+    settings: ServiceSettings,
+    database: Database | None,
+    extra_checks: dict[str, ReadinessCheck] | None = None,
+) -> APIRouter:
     router = APIRouter(tags=["Health"])
 
     @router.get("/health", summary="Liveness probe")
@@ -28,14 +35,22 @@ def health_router(settings: ServiceSettings, database: Database) -> APIRouter:
         hiccup never makes Kubernetes restart every pod."""
         return {"status": "ok", "service": settings.service_name}
 
-    @router.get("/health/ready", summary="Readiness probe — checks this service's database")
+    @router.get("/health/ready", summary="Readiness probe — checks this service's own stores")
     async def ready(response: Response) -> dict:
-        try:
-            async with database.engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
-            checks = {"postgres": "ok"}
-        except Exception as exc:
-            checks = {"postgres": f"error: {exc.__class__.__name__}"}
+        checks: dict[str, str] = {}
+        if database is not None:
+            try:
+                async with database.engine.connect() as connection:
+                    await connection.execute(text("SELECT 1"))
+                checks["postgres"] = "ok"
+            except Exception as exc:
+                checks["postgres"] = f"error: {exc.__class__.__name__}"
+        for name, check in (extra_checks or {}).items():
+            try:
+                await check()
+                checks[name] = "ok"
+            except Exception as exc:
+                checks[name] = f"error: {exc.__class__.__name__}"
         ok = all(v == "ok" for v in checks.values())
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -47,7 +62,7 @@ def health_router(settings: ServiceSettings, database: Database) -> APIRouter:
 def create_service_app(
     *,
     settings: ServiceSettings,
-    database: Database,
+    database: Database | None,
     title: str,
     description: str,
     routers: Sequence[APIRouter],
@@ -55,6 +70,7 @@ def create_service_app(
     constraint_messages: dict[str, str] | None = None,
     on_startup: Sequence[Hook] = (),
     on_shutdown: Sequence[Hook] = (),
+    readiness_checks: dict[str, ReadinessCheck] | None = None,
 ) -> FastAPI:
     configure_logging(settings.service_name, settings.log_level, settings.log_json)
 
@@ -65,7 +81,8 @@ def create_service_app(
         yield
         for hook in on_shutdown:
             await hook()
-        await database.dispose()
+        if database is not None:
+            await database.dispose()
 
     app = FastAPI(
         title=title,
@@ -87,13 +104,13 @@ def create_service_app(
         return response
 
     install_error_handlers(app, constraint_messages)
-    app.include_router(health_router(settings, database))
+    app.include_router(health_router(settings, database, readiness_checks))
     for router in routers:
         app.include_router(router)
     setup_telemetry(
         app,
         service_name=settings.service_name,
         endpoint=settings.otel_exporter_otlp_endpoint,
-        engine=database.engine,
+        engine=database.engine if database is not None else None,
     )
     return app

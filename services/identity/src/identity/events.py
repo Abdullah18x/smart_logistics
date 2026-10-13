@@ -7,10 +7,11 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from identity.models import User
-from identity.repository import AssignmentRepository, RefreshTokenRepository
+from identity.repository import AssignmentRepository, RefreshTokenRepository, UserRepository
 from sl_platform.consumer import EventProcessor
 from sl_platform.events import EventEnvelope, Topics
 from sl_platform.outbox import add_event
+from sl_platform.roles import UserRole
 
 PRODUCER = "identity"
 
@@ -69,10 +70,39 @@ async def on_warehouse_deleted(session: AsyncSession, event: EventEnvelope) -> N
             emit(session, UserEvents.SCOPE_CHANGED, user, removed_warehouse_id=warehouse_id)
 
 
+async def on_courier_profile(session: AsyncSession, event: EventEnvelope) -> None:
+    """Mirror the courier service's profile↔account link as ``users.courier_id``.
+
+    The courier service owns the link; Identity keeps a copy only so the access
+    token can name the courier profile. A profile moved to another account, or
+    deleted, clears the old link. Only accounts with the courier role are linked.
+    The change reaches the token at the user's next login or refresh.
+    """
+    courier_id = uuid.UUID(str(event.payload["id"]))
+    raw_user = event.payload.get("user_id")
+    target = None if event.payload.get("deleted") or not raw_user else uuid.UUID(str(raw_user))
+    for user in await UserRepository(session).linked_to_courier(courier_id):
+        if user.id != target:
+            user.courier_id = None
+            emit(session, UserEvents.UPDATED, user, unlinked_courier_id=courier_id)
+    await session.flush()
+    if target is None:
+        return
+    user = await session.get(User, target)
+    if user is None or user.role is not UserRole.COURIER or user.courier_id == courier_id:
+        return
+    user.courier_id = courier_id
+    await session.flush()
+    emit(session, UserEvents.UPDATED, user, linked_courier_id=courier_id)
+
+
 def build_processor(sessionmaker) -> EventProcessor:
+    handlers = {"warehouse.deleted": on_warehouse_deleted}
+    for name in ("courier.created", "courier.updated", "courier.deleted", "courier.restored"):
+        handlers[name] = on_courier_profile
     return EventProcessor(
         "identity",
         sessionmaker,
-        handlers={"warehouse.deleted": on_warehouse_deleted},
-        topics=(Topics.WAREHOUSE,),
+        handlers=handlers,
+        topics=(Topics.WAREHOUSE, Topics.COURIER),
     )

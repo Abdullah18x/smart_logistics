@@ -16,6 +16,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     Sequence,
     String,
@@ -186,6 +187,12 @@ class Shipment(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     failure_reason: Mapped[str | None] = mapped_column(String(500))
     special_instructions: Mapped[str | None] = mapped_column(String(500))
     dispatch_workflow_id: Mapped[str | None] = mapped_column(String(255))
+    #: Incremented on every dispatch request. Part of the workflow id
+    #: (``dispatch-<id>-<attempt>``), so a redelivered request can never start a
+    #: second run of the same attempt, while a retry after a failure can.
+    dispatch_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
 
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
@@ -284,6 +291,24 @@ class ShipmentStatusHistory(UUIDPrimaryKeyMixin, Base):
     actor_role: Mapped[str | None] = mapped_column(String(32))
     reason: Mapped[str | None] = mapped_column(String(500))
     occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=text("now()")
+    )
+
+
+class PackageLabel(Base):
+    """The printable shipping label (PDF) for one package.
+
+    Kept in the database rather than on a pod's disk, so any replica of the
+    service can serve it. Regenerating replaces it.
+    """
+
+    __tablename__ = "package_labels"
+
+    package_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("packages.id", ondelete="CASCADE"), primary_key=True
+    )
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, server_default=text("now()")
     )
 

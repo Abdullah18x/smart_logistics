@@ -32,19 +32,25 @@ EDITABLE_STATES = frozenset({S.CREATED, S.READY_FOR_DISPATCH, S.DISPATCH_FAILED}
 #: Statuses still owed to the customer (for the "overdue" filter).
 OPEN_STATES = frozenset(set(S) - TERMINAL_STATES - {S.RETURN_INITIATED})
 
-#: Which role may move a shipment *into* each status. The dispatch and
-#: delivery workflows (Temporal, Phase 2) take over the middle of this table.
+#: Which role may move a shipment *into* each status via PATCH /status.
+#: Dispatch belongs to the dispatch workflow: a person *requests* it
+#: (``POST /shipments/{id}/dispatch`` → ``dispatching``) and only the workflow's
+#: service account (``system``) may record the outcome. Nobody can mark a
+#: shipment dispatched by hand, so labels, courier and tracking always exist.
 TRANSITION_ROLES: dict[S, frozenset[R]] = {
     S.READY_FOR_DISPATCH: frozenset({R.ADMIN, R.WAREHOUSE_OPERATOR}),
-    S.DISPATCHING: frozenset({R.ADMIN}),
-    S.DISPATCHED: frozenset({R.ADMIN}),
-    S.DISPATCH_FAILED: frozenset({R.ADMIN}),
-    S.PICKED_UP: frozenset({R.ADMIN, R.COURIER}),
-    S.IN_TRANSIT: frozenset({R.ADMIN, R.COURIER}),
-    S.OUT_FOR_DELIVERY: frozenset({R.ADMIN, R.COURIER}),
-    S.DELIVERED: frozenset({R.ADMIN, R.COURIER}),
-    S.DELIVERY_FAILED: frozenset({R.ADMIN, R.COURIER}),
-    S.RETURN_INITIATED: frozenset({R.ADMIN, R.CUSTOMER_SUPPORT}),
+    S.DISPATCHING: frozenset(),
+    S.DISPATCHED: frozenset({R.SYSTEM}),
+    S.DISPATCH_FAILED: frozenset({R.SYSTEM}),
+    # Couriers report from the field through the tracking service; the delivery
+    # workflow validates each report and is the one writer of these statuses.
+    S.PICKED_UP: frozenset({R.SYSTEM}),
+    S.IN_TRANSIT: frozenset({R.SYSTEM}),
+    S.OUT_FOR_DELIVERY: frozenset({R.SYSTEM}),
+    S.DELIVERED: frozenset({R.SYSTEM}),
+    S.DELIVERY_FAILED: frozenset({R.SYSTEM}),
+    # Support may start a return by hand; the workflow does after the last attempt.
+    S.RETURN_INITIATED: frozenset({R.ADMIN, R.CUSTOMER_SUPPORT, R.SYSTEM}),
     S.RETURNED: frozenset({R.ADMIN, R.WAREHOUSE_OPERATOR}),
     S.CANCELLED: frozenset({R.ADMIN, R.CUSTOMER_SUPPORT}),
 }

@@ -11,6 +11,7 @@ from sl_platform.errors import AuthenticationError, RemoteError, UpstreamUnavail
 from sl_platform.http import CircuitBreaker, ServiceClient
 from sl_platform.idempotency import hash_payload
 from sl_platform.roles import UserRole
+from sl_platform.service_auth import ServiceTokenProvider
 from sl_platform.testing import TEST_KID, generate_rsa_keypair, mint_token
 
 
@@ -137,3 +138,117 @@ class TestTokenVerifier:
         )
         with pytest.raises(AuthenticationError):
             await verifier.verify(mint_token(private, audience="someone-else"))
+
+
+class TestServiceTokens:
+    def _identity(self, calls: list[str], *, expires_in: int = 300):
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.url.path)
+            return httpx.Response(
+                200, json={"access_token": f"svc-{len(calls)}", "expires_in": expires_in}
+            )
+
+        return httpx.MockTransport(handler)
+
+    async def test_token_is_cached_until_close_to_expiry(self):
+        calls: list[str] = []
+        provider = ServiceTokenProvider(
+            "http://identity", "orchestrator", "s", transport=self._identity(calls)
+        )
+        assert await provider.token() == "svc-1"
+        assert await provider.token() == "svc-1"
+        assert calls == ["/api/v1/auth/service-token"]
+
+        short = ServiceTokenProvider(
+            "http://identity", "orchestrator", "s", transport=self._identity([], expires_in=30)
+        )
+        first = await short.token()
+        assert await short.token() != first  # inside the renewal margin: fetch again
+
+    async def test_client_without_a_user_token_acts_as_the_service(self):
+        seen: list[str | None] = []
+
+        def target(request: httpx.Request) -> httpx.Response:
+            seen.append(request.headers.get("authorization"))
+            return httpx.Response(200, json={})
+
+        provider = ServiceTokenProvider(
+            "http://identity", "orchestrator", "s", transport=self._identity([])
+        )
+        client = ServiceClient(
+            "svc", "http://svc", transport=httpx.MockTransport(target), service_tokens=provider
+        )
+        await client.get("/x")
+        await client.get("/x", token="user-token")
+        assert seen == ["Bearer svc-1", "Bearer user-token"]
+
+    async def test_a_rejected_service_token_is_renewed_once(self):
+        seen: list[str | None] = []
+
+        def target(request: httpx.Request) -> httpx.Response:
+            seen.append(request.headers.get("authorization"))
+            if request.headers["authorization"] == "Bearer svc-1":
+                return httpx.Response(401, json={"code": "invalid_token", "message": "expired"})
+            return httpx.Response(200, json={})
+
+        provider = ServiceTokenProvider(
+            "http://identity", "orchestrator", "s", transport=self._identity([])
+        )
+        client = ServiceClient(
+            "svc", "http://svc", transport=httpx.MockTransport(target), service_tokens=provider
+        )
+        await client.post("/x")
+        assert seen == ["Bearer svc-1", "Bearer svc-2"]
+
+    async def test_identity_refusing_is_upstream_unavailable(self):
+        provider = ServiceTokenProvider(
+            "http://identity",
+            "orchestrator",
+            "wrong",
+            transport=httpx.MockTransport(lambda r: httpx.Response(401, json={})),
+        )
+        with pytest.raises(UpstreamUnavailableError):
+            await provider.token()
+
+    def test_system_principal_is_unrestricted_and_flagged(self):
+        p = Principal(user_id=uuid.uuid4(), role=UserRole.SYSTEM)
+        assert p.is_system and p.scoped_warehouse_ids is None
+
+
+class TestWorkerWaitsForSchema:
+    """A worker started before `migrate` waits, saying what to run, instead of
+    relaying or consuming into tables that do not exist."""
+
+    async def test_waits_until_migrated_and_says_what_to_run(self, monkeypatch, caplog):
+        import asyncio
+
+        from sl_platform import worker
+
+        answers = [["outbox_events", "processed_events"], ["outbox_events"], []]
+
+        async def fake_missing(_database):
+            return answers.pop(0)
+
+        async def no_wait(awaitable, timeout):
+            awaitable.close()
+            raise TimeoutError
+
+        monkeypatch.setattr(worker, "missing_tables", fake_missing)
+        monkeypatch.setattr(worker.asyncio, "wait_for", no_wait)
+        assert await worker.wait_for_schema(object(), "courier", asyncio.Event()) is True
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert len(errors) == 2  # once per distinct problem, not once per check
+        assert "./dev.sh migrate courier" in errors[0]
+
+    async def test_stops_waiting_when_the_worker_is_stopped(self, monkeypatch):
+        import asyncio
+
+        from sl_platform import worker
+
+        async def unreachable(_database):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(worker, "missing_tables", unreachable)
+        stop = asyncio.Event()
+        stop.set()
+        assert await worker.wait_for_schema(object(), "courier", stop) is False

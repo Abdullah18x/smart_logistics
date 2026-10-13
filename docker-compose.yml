@@ -75,6 +75,58 @@ services:
     volumes: [shipment-db:/var/lib/postgresql/data]
     healthcheck: {<<: *db-health, test: ["CMD-SHELL", "pg_isready -U shipment -d shipment"]}
 
+  courier-db:
+    <<: *db
+    environment: {POSTGRES_USER: courier, POSTGRES_PASSWORD: courier, POSTGRES_DB: courier}
+    ports: ["${COURIER_DB_PORT:-5445}:5432"]
+    volumes: [courier-db:/var/lib/postgresql/data]
+    healthcheck: {<<: *db-health, test: ["CMD-SHELL", "pg_isready -U courier -d courier"]}
+
+  # --- tracking store (MongoDB) ------------------------------------------------------
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    mem_limit: 512m
+    ports: ["${MONGO_PORT:-27017}:27017"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # --- workflows (Temporal) ------------------------------------------------------------
+  # Temporal keeps workflow state in its own database; no service shares it.
+  temporal-db:
+    <<: *db
+    environment: {POSTGRES_USER: temporal, POSTGRES_PASSWORD: temporal}
+    volumes: [temporal-db:/var/lib/postgresql/data]
+    healthcheck: {<<: *db-health, test: ["CMD-SHELL", "pg_isready -U temporal"]}
+
+  temporal:
+    image: temporalio/auto-setup:1.29.1
+    restart: unless-stopped
+    ports: ["${TEMPORAL_PORT:-7233}:7233"]
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-db
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    volumes: ["./infra/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro"]
+    depends_on: {temporal-db: {condition: service_healthy}}
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    restart: unless-stopped
+    ports: ["${TEMPORAL_UI_PORT:-8233}:8080"]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+    depends_on: [temporal]
+
   # --- messaging -----------------------------------------------------------------
   kafka:
     image: apache/kafka:3.9.1
@@ -156,7 +208,10 @@ services:
         [{"name": "identity — auth & users", "url": "/openapi/identity.json"},
          {"name": "warehouse", "url": "/openapi/warehouse.json"},
          {"name": "inventory — catalog, stock & reservations", "url": "/openapi/inventory.json"},
-         {"name": "shipment", "url": "/openapi/shipment.json"}]
+         {"name": "shipment", "url": "/openapi/shipment.json"},
+         {"name": "courier — profiles & assignments", "url": "/openapi/courier.json"},
+         {"name": "tracking — journeys & field updates", "url": "/openapi/tracking.json"},
+         {"name": "orchestrator — dispatch workflows", "url": "/openapi/orchestrator.json"}]
       URLS_PRIMARY_NAME: identity — auth & users
       PERSIST_AUTHORIZATION: "true"
       DISPLAY_REQUEST_DURATION: "true"
@@ -192,6 +247,8 @@ services:
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
       JWT_KEY_ID: ${JWT_KEY_ID:-sl-1}
       WAREHOUSE_SERVICE_URL: http://warehouse:8000
+      # Development credentials only; a secret store provides them elsewhere.
+      SERVICE_CLIENTS: '{"orchestrator": "orchestrator-dev-secret"}'
       RUN_MIGRATIONS: "true"
     secrets: [jwt_private_key]
     ports: ["8001:8000"]
@@ -320,6 +377,109 @@ services:
     healthcheck: {disable: true}
     depends_on: {shipment: {condition: service_healthy}, kafka: {condition: service_healthy}}
 
+  # --- courier ---------------------------------------------------------------------
+  courier:
+    build: {<<: *build, args: {SERVICE: courier}}
+    image: smartlogistics/courier:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      <<: [*common-env, *verifier-env]
+      DATABASE_URL: postgresql+asyncpg://courier:courier@courier-db:5432/courier
+      RUN_MIGRATIONS: "true"
+    ports: ["8005:8000"]
+    depends_on: {courier-db: {condition: service_healthy}}
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.courier.rule: PathPrefix(`/api/v1/couriers`)
+      traefik.http.routers.courier.entrypoints: web
+      traefik.http.services.courier.loadbalancer.server.port: "8000"
+      # Its spec, for the combined Swagger UI at http://localhost:8000/docs
+      traefik.http.routers.courier-openapi.rule: Path(`/openapi/courier.json`)
+      traefik.http.routers.courier-openapi.entrypoints: web
+      traefik.http.routers.courier-openapi.service: courier
+      traefik.http.routers.courier-openapi.middlewares: courier-openapi
+      traefik.http.middlewares.courier-openapi.replacepath.path: /openapi.json
+
+  courier-worker:
+    image: smartlogistics/courier:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["python", "-m", "courier.worker"]
+    environment:
+      <<: [*common-env, *verifier-env]
+      DATABASE_URL: postgresql+asyncpg://courier:courier@courier-db:5432/courier
+    healthcheck: {disable: true}
+    depends_on: {courier: {condition: service_healthy}, kafka: {condition: service_healthy}}
+
+  # --- orchestrator (Temporal workflows; no database of its own) --------------------
+  orchestrator:
+    build: {<<: *build, args: {SERVICE: orchestrator}}
+    image: smartlogistics/orchestrator:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment: &orchestrator-env
+      <<: [*common-env, *verifier-env]
+      TEMPORAL_ADDRESS: temporal:7233
+      IDENTITY_SERVICE_URL: http://identity:8000
+      INVENTORY_SERVICE_URL: http://inventory:8000
+      SHIPMENT_SERVICE_URL: http://shipment:8000
+      COURIER_SERVICE_URL: http://courier:8000
+      TRACKING_SERVICE_URL: http://tracking:8000
+      SERVICE_CLIENT_ID: orchestrator
+      SERVICE_CLIENT_SECRET: orchestrator-dev-secret
+    ports: ["8006:8000"]
+    depends_on: [temporal]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.orchestrator.rule: PathPrefix(`/api/v1/dispatches`)
+      traefik.http.routers.orchestrator.entrypoints: web
+      traefik.http.services.orchestrator.loadbalancer.server.port: "8000"
+      traefik.http.routers.orchestrator-openapi.rule: Path(`/openapi/orchestrator.json`)
+      traefik.http.routers.orchestrator-openapi.entrypoints: web
+      traefik.http.routers.orchestrator-openapi.service: orchestrator
+      traefik.http.routers.orchestrator-openapi.middlewares: orchestrator-openapi
+      traefik.http.middlewares.orchestrator-openapi.replacepath.path: /openapi.json
+
+  orchestrator-worker:
+    image: smartlogistics/orchestrator:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["python", "-m", "orchestrator.worker"]
+    environment: *orchestrator-env
+    healthcheck: {disable: true}
+    depends_on:
+      orchestrator: {condition: service_started}
+      kafka: {condition: service_healthy}
+      temporal: {condition: service_started}
+
+  # --- tracking (MongoDB) -----------------------------------------------------------
+  tracking:
+    build: {<<: *build, args: {SERVICE: tracking}}
+    image: smartlogistics/tracking:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      <<: [*common-env, *verifier-env]
+      MONGO_URL: mongodb://mongo:27017
+    ports: ["8007:8000"]
+    depends_on: {mongo: {condition: service_healthy}}
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.tracking.rule: PathPrefix(`/api/v1/tracking`)
+      traefik.http.routers.tracking.entrypoints: web
+      traefik.http.services.tracking.loadbalancer.server.port: "8000"
+      traefik.http.routers.tracking-openapi.rule: Path(`/openapi/tracking.json`)
+      traefik.http.routers.tracking-openapi.entrypoints: web
+      traefik.http.routers.tracking-openapi.service: tracking
+      traefik.http.routers.tracking-openapi.middlewares: tracking-openapi
+      traefik.http.middlewares.tracking-openapi.replacepath.path: /openapi.json
+
+  tracking-worker:
+    image: smartlogistics/tracking:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["python", "-m", "tracking.worker"]
+    environment:
+      <<: [*common-env, *verifier-env]
+      MONGO_URL: mongodb://mongo:27017
+    healthcheck: {disable: true}
+    depends_on: {tracking: {condition: service_healthy}, kafka: {condition: service_healthy}}
+
 secrets:
   jwt_private_key:
     file: ./infra/keys/jwt-private.pem
@@ -329,4 +489,7 @@ volumes:
   warehouse-db:
   inventory-db:
   shipment-db:
+  courier-db:
+  temporal-db:
+  mongo-data:
   kafka-data:

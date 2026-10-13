@@ -36,12 +36,21 @@ AnyPrincipal = Annotated[Principal, Depends(auth)]
 AdminPrincipal = Annotated[Principal, Depends(auth.require(UserRole.ADMIN))]
 StockViewer = Annotated[
     Principal,
-    Depends(auth.require(UserRole.ADMIN, UserRole.WAREHOUSE_OPERATOR, UserRole.CUSTOMER_SUPPORT)),
+    Depends(
+        auth.require(
+            UserRole.ADMIN,
+            UserRole.WAREHOUSE_OPERATOR,
+            UserRole.CUSTOMER_SUPPORT,
+            UserRole.SYSTEM,
+        )
+    ),
 ]
 StockManager = Annotated[
     Principal, Depends(auth.require(UserRole.ADMIN, UserRole.WAREHOUSE_OPERATOR))
 ]
-#: Whoever may create or cancel shipments may hold and release stock for them.
+#: Whoever may create or cancel shipments may hold and release stock for them,
+#: and the dispatch workflow confirms holds before dispatch.
 ShipmentOperator = Annotated[
-    Principal, Depends(auth.require(UserRole.ADMIN, UserRole.CUSTOMER_SUPPORT))
+    Principal,
+    Depends(auth.require(UserRole.ADMIN, UserRole.CUSTOMER_SUPPORT, UserRole.SYSTEM)),
 ]

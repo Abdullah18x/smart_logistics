@@ -30,10 +30,10 @@ td:nth-child(2) code { background: none; color: #1d4ed8; font-weight: 700; paddi
 <p class="lead">Where to look, depending on what you need to do.</p>
 
 <div class="status">
-  <span><b>Status:</b> Week 1 of 5 complete (microservices foundation) · Week 2 in progress</span>
-  <span><b>Services:</b> 4, each with its own database</span>
-  <span><b>Tests:</b> 115 passing</span>
-  <span><b>API:</b> 56 endpoints behind one gateway</span>
+  <span><b>Status:</b> Weeks 1–2 of 5 complete (foundation, dispatch &amp; delivery)</span>
+  <span><b>Services:</b> 7, each with its own store</span>
+  <span><b>Tests:</b> 233 passing</span>
+  <span><b>API:</b> 82 endpoints behind one gateway</span>
 </div>
 
 <div class="box">
@@ -51,10 +51,11 @@ td:nth-child(2) code { background: none; color: #1d4ed8; font-weight: 700; paddi
   <tr><th>Goal</th><th>Read</th><th>What's there</th></tr>
   <tr><td>Set the project up and run it</td><td><code>README.md</code></td><td>Prerequisites, the two run modes (services on your machine or everything in Docker) on macOS, Linux and Windows, every <code>./dev.sh</code> command, configuration and troubleshooting.</td></tr>
   <tr><td>Try the API myself</td><td><code>README.md</code> → API docs<br><code>docs/curl/</code></td><td>Swagger UI for all services at <code>localhost:8000/docs</code>, a Postman collection, a merged OpenAPI file and an offline HTML page with copy-paste curl commands — all regenerated from the code with <code>./dev.sh docs</code>.</td></tr>
-  <tr><td>Understand how it's built and why</td><td><code>docs/ARCHITECTURE.md</code><br><code>docs/adr/</code></td><td>Services and ownership, how they communicate (REST, Kafka events), consistency and idempotency, security, observability, the Week 2 design. Section 1.1 maps every requirement in the brief to its honest status. 16 decision records.</td></tr>
+  <tr><td>Understand how it's built and why</td><td><code>docs/ARCHITECTURE.md</code><br><code>docs/adr/</code></td><td>Services and ownership, how they communicate (REST, Kafka events, Temporal workflows), consistency and idempotency, security, observability, dispatch and delivery. Section 1.1 maps every requirement in the brief to its honest status. 18 decision records.</td></tr>
   <tr><td>See the requirements and their traceability</td><td><code>docs/PRD.md</code></td><td>Key use cases, functional and non-functional requirements, milestones, and a matrix from each requirement to the code and tests that deliver it.</td></tr>
-  <tr><td>See the database design</td><td><code>docs/database.md</code></td><td>Every service's tables, columns, keys and constraints with ER diagrams — generated from the models, so it cannot drift.</td></tr>
-  <tr><td>Review what was delivered this week</td><td><code>docs/phase_1.md</code></td><td>The Week 1 build log: what was built, defects found and fixed, and what is deliberately left for later weeks.</td></tr>
+  <tr><td>See the database design</td><td><code>docs/database.md</code></td><td>Every service's tables, columns, keys and constraints with ER diagrams, plus the tracking service's MongoDB collections — generated from the models, so it cannot drift.</td></tr>
+  <tr><td>Review what was delivered each week</td><td><code>docs/phase_2.md</code><br><code>docs/phase_1.md</code></td><td>The build logs: what was built, how dispatch and delivery behave in each failure case, defects found and fixed, and what is deliberately left for later weeks.</td></tr>
+  <tr><td>Watch a dispatch run</td><td><code>localhost:8233</code></td><td>The Temporal UI: every dispatch and delivery workflow, step by step, with inputs, retries and failure reasons. README → <i>Try a dispatch</i> walks through one.</td></tr>
   <tr><td>See the original requirements</td><td><code>docs/projectDocs/</code></td><td>The assignment briefs this project is built against, unmodified.</td></tr>
 </table>
 

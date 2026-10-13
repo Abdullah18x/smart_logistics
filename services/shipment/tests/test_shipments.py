@@ -45,6 +45,23 @@ async def move(client, shipment_id, status, headers=ADMIN, **extra):
     )
 
 
+SYSTEM = auth(UserRole.SYSTEM)
+
+
+async def dispatch(client, shipment_id) -> dict:
+    """What a person and the dispatch workflow do between them."""
+    assert (await move(client, shipment_id, "ready_for_dispatch")).status_code == 200
+    package = await client.post(
+        f"{BASE}/{shipment_id}/packages", json={"weight_g": 1200}, headers=ADMIN
+    )
+    assert package.status_code == 201, package.text
+    requested = await client.post(f"{BASE}/{shipment_id}/dispatch", headers=ADMIN)
+    assert requested.status_code == 202, requested.text
+    done = await move(client, shipment_id, "dispatched", headers=SYSTEM)
+    assert done.status_code == 200, done.text
+    return done.json()
+
+
 async def outbox():
     async with database.sessionmaker() as session:
         return [
@@ -150,9 +167,8 @@ class TestIdempotentCreate:
 class TestLifecycle:
     async def test_transitions_follow_the_state_machine_and_write_history(self, client, inventory):
         created = await create(client)
-        for status in ("ready_for_dispatch", "dispatching", "dispatched"):
-            assert (await move(client, created["id"], status)).status_code == 200
-        illegal = await move(client, created["id"], "delivered")
+        await dispatch(client, created["id"])
+        illegal = await move(client, created["id"], "delivered", headers=SYSTEM)
         assert illegal.status_code == 409
         history = (await client.get(f"{BASE}/{created['id']}/history", headers=ADMIN)).json()
         assert [h["to_status"] for h in history] == [
@@ -169,8 +185,7 @@ class TestLifecycle:
 
     async def test_cancellation_is_refused_once_dispatched(self, client, inventory):
         created = await create(client)
-        for status in ("ready_for_dispatch", "dispatching", "dispatched"):
-            await move(client, created["id"], status)
+        await dispatch(client, created["id"])
         response = await client.post(
             f"{BASE}/{created['id']}/cancel", json={"reason": "Changed mind"}, headers=ADMIN
         )
@@ -265,8 +280,7 @@ class TestUpdate:
 
     async def test_no_edits_after_dispatch(self, client, inventory):
         created = await create(client)
-        for status in ("ready_for_dispatch", "dispatching", "dispatched"):
-            await move(client, created["id"], status)
+        await dispatch(client, created["id"])
         response = await client.patch(
             f"{BASE}/{created['id']}", json={"priority": "high"}, headers=ADMIN
         )
