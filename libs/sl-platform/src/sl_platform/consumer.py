@@ -179,6 +179,7 @@ class KafkaConsumerRunner:
                 # A new consumer group replays the topic from the start, which is
                 # how a fresh service builds its local read models.
                 auto_offset_reset="earliest",
+                metadata_max_age_ms=30_000,
             )
             try:
                 await candidate.start()
