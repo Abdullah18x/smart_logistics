@@ -1,0 +1,65 @@
+# Generated layout — local mode. Services run on the host (./dev.sh start); targets are host ports.
+# Ports: API /metrics on the API port; Kafka worker 91NN (local) / 9100; Celery worker
+# 92NN (local) / 9100; Temporal SDK metrics of the orchestrator worker 9306 (local) / 9300.
+global:
+  scrape_interval: 10s
+  evaluation_interval: 15s
+
+rule_files: ["/etc/prometheus/rules/*.yml"]
+
+scrape_configs:
+  - job_name: api
+    static_configs:
+      - targets: ["host.docker.internal:8001"]
+        labels: {service: identity}
+      - targets: ["host.docker.internal:8002"]
+        labels: {service: warehouse}
+      - targets: ["host.docker.internal:8003"]
+        labels: {service: inventory}
+      - targets: ["host.docker.internal:8004"]
+        labels: {service: shipment}
+      - targets: ["host.docker.internal:8005"]
+        labels: {service: courier}
+      - targets: ["host.docker.internal:8006"]
+        labels: {service: orchestrator}
+      - targets: ["host.docker.internal:8007"]
+        labels: {service: tracking}
+      - targets: ["host.docker.internal:8008"]
+        labels: {service: analytics}
+      - targets: ["host.docker.internal:8009"]
+        labels: {service: notification}
+  - job_name: worker
+    static_configs:
+      - targets: ["host.docker.internal:9101"]
+        labels: {service: identity}
+      - targets: ["host.docker.internal:9102"]
+        labels: {service: warehouse}
+      - targets: ["host.docker.internal:9103"]
+        labels: {service: inventory}
+      - targets: ["host.docker.internal:9104"]
+        labels: {service: shipment}
+      - targets: ["host.docker.internal:9105"]
+        labels: {service: courier}
+      - targets: ["host.docker.internal:9106"]
+        labels: {service: orchestrator}
+      - targets: ["host.docker.internal:9107"]
+        labels: {service: tracking}
+      - targets: ["host.docker.internal:9108"]
+        labels: {service: analytics}
+      - targets: ["host.docker.internal:9109"]
+        labels: {service: notification}
+  - job_name: celery
+    static_configs:
+      - targets: ["host.docker.internal:9203"]
+        labels: {service: inventory}
+      - targets: ["host.docker.internal:9208"]
+        labels: {service: analytics}
+      - targets: ["host.docker.internal:9209"]
+        labels: {service: notification}
+  - job_name: temporal-sdk
+    static_configs:
+      - targets: ["host.docker.internal:9306"]
+        labels: {service: orchestrator}
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

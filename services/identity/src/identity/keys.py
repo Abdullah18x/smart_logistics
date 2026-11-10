@@ -92,6 +92,9 @@ class SigningKey:
             "courier_id": str(courier_id) if courier_id else None,
             "jti": str(uuid.uuid4()),
             "iat": now,
+            # Millisecond issue time: lets the denylist tell a token issued just
+            # before a revocation from one issued just after (iat is whole seconds).
+            "iat_ms": int(now.timestamp() * 1000),
             "exp": now + ttl,
             "iss": issuer,
             "aud": audience,

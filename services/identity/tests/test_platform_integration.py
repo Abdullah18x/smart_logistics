@@ -6,10 +6,14 @@ from sqlalchemy import func, select
 
 from identity.db import database
 from identity.events import build_processor
+from sl_platform import contracts
 from sl_platform.consumer import LocalEventBus
 from sl_platform.events import EventEnvelope
 from sl_platform.models import OutboxEvent, ProcessedEvent
 from sl_platform.outbox import OutboxRelay, add_event
+
+# Every staged event needs a contract; this one is the relay's test subject.
+contracts.register({"x.happened": contracts.event("x.happened", {}, required=())})
 
 
 class FlakyPublisher:
@@ -17,7 +21,7 @@ class FlakyPublisher:
         self.fail_on = fail_on
         self.sent: list[str] = []
 
-    async def send(self, topic, key, value):
+    async def send(self, topic, key, value, headers=None):
         if len(self.sent) == self.fail_on:
             self.fail_on = -1
             raise ConnectionError("broker down")

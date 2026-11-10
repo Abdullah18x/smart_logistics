@@ -55,6 +55,18 @@
     {
       "name": "Tracking",
       "description": "**tracking service** · Journeys, field updates, public view."
+    },
+    {
+      "name": "Analytics",
+      "description": "**analytics service** · Read-only metrics."
+    },
+    {
+      "name": "Notifications",
+      "description": "**notification service** · The delivery log, and resending."
+    },
+    {
+      "name": "Suppressions",
+      "description": "**notification service** · Addresses not to message."
     }
   ],
   "x-tagGroups": [
@@ -102,6 +114,19 @@
       "name": "tracking",
       "tags": [
         "Tracking"
+      ]
+    },
+    {
+      "name": "analytics",
+      "tags": [
+        "Analytics"
+      ]
+    },
+    {
+      "name": "notification",
+      "tags": [
+        "Notifications",
+        "Suppressions"
       ]
     }
   ],
@@ -6003,6 +6028,1094 @@
         },
         "x-service": "tracking"
       }
+    },
+    "/api/v1/analytics/summary": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "All nine metrics",
+        "description": "Shipments created, dispatched, delivered, failed deliveries, average delivery\ntime, courier utilisation, warehouse throughput, return rate and failed events —\nfor a period of up to a year. Counts come from daily rollups that move as events\narrive; utilisation is the courier fleet's load right now.",
+        "operationId": "summary_api_v1_analytics_summary_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day (UTC), default 29 days ago.",
+              "title": "From"
+            },
+            "description": "First day (UTC), default 29 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day (UTC), default today.",
+              "title": "To"
+            },
+            "description": "Last day (UTC), default today."
+          },
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this warehouse.",
+              "title": "Warehouse Id"
+            },
+            "description": "Only this warehouse."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Summary"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "x-service": "analytics"
+      }
+    },
+    "/api/v1/analytics/timeseries": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "One metric per day",
+        "description": "A count per day, zero-filled — e.g. shipments dispatched over time.",
+        "operationId": "timeseries_api_v1_analytics_timeseries_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "metric",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Metric",
+              "description": "e.g. dispatched, delivered, returned.",
+              "default": "dispatched"
+            },
+            "description": "e.g. dispatched, delivered, returned."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day (UTC), default 29 days ago.",
+              "title": "From"
+            },
+            "description": "First day (UTC), default 29 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day (UTC), default today.",
+              "title": "To"
+            },
+            "description": "Last day (UTC), default today."
+          },
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this warehouse.",
+              "title": "Warehouse Id"
+            },
+            "description": "Only this warehouse."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Series"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "x-service": "analytics"
+      }
+    },
+    "/api/v1/analytics/warehouses": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Throughput per warehouse",
+        "operationId": "warehouses_api_v1_analytics_warehouses_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day (UTC), default 29 days ago.",
+              "title": "From"
+            },
+            "description": "First day (UTC), default 29 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day (UTC), default today.",
+              "title": "To"
+            },
+            "description": "Last day (UTC), default today."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WarehouseThroughput"
+                  },
+                  "title": "Response Warehouses Api V1 Analytics Warehouses Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "x-service": "analytics"
+      }
+    },
+    "/api/v1/analytics/couriers": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Per courier",
+        "description": "Assignments and outcomes in the period, plus each courier's load right now.\nWarehouse operators see the couriers based at their warehouses.",
+        "operationId": "couriers_api_v1_analytics_couriers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day (UTC), default 29 days ago.",
+              "title": "From"
+            },
+            "description": "First day (UTC), default 29 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day (UTC), default today.",
+              "title": "To"
+            },
+            "description": "Last day (UTC), default today."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CourierStats"
+                  },
+                  "title": "Response Couriers Api V1 Analytics Couriers Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "x-service": "analytics"
+      }
+    },
+    "/api/v1/analytics/issues": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Failed events",
+        "description": "Dead letters (with the consumer, reason and error) and failed dispatches,\nnewest first. Replay dead letters with ``./dev.sh dlq replay``; replayed ones\nshow ``status: replayed``.",
+        "operationId": "issues_api_v1_analytics_issues_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day (UTC), default 29 days ago.",
+              "title": "From"
+            },
+            "description": "First day (UTC), default 29 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day (UTC), default today.",
+              "title": "To"
+            },
+            "description": "Last day (UTC), default today."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/IssueKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Consumer or warehouse code.",
+              "title": "Source"
+            },
+            "description": "Consumer or warehouse code."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuePage"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "x-service": "analytics"
+      }
+    },
+    "/api/v1/analytics/recompute": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Rebuild the rollups of a period",
+        "description": "Queue a rebuild of the daily counters from the milestone facts — the same job\nthat runs nightly for the last two days. Use it after replaying old events.",
+        "operationId": "recompute_api_v1_analytics_recompute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecomputeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecomputeAccepted"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "analytics"
+      }
+    },
+    "/api/v1/notifications/suppressions": {
+      "get": {
+        "tags": [
+          "Suppressions"
+        ],
+        "summary": "Suppressed addresses",
+        "operationId": "list_suppressions_api_v1_notifications_suppressions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SuppressionRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Suppressions Api V1 Notifications Suppressions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "notification"
+      },
+      "post": {
+        "tags": [
+          "Suppressions"
+        ],
+        "summary": "Stop messaging an address on a channel",
+        "description": "Opt-outs, wrong numbers, bounced addresses. Checked at send time, so it\nalso stops messages already queued.",
+        "operationId": "suppress_api_v1_notifications_suppressions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuppressionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuppressionRead"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "x-service": "notification"
+      }
+    },
+    "/api/v1/notifications/suppressions/{suppression_id}": {
+      "delete": {
+        "tags": [
+          "Suppressions"
+        ],
+        "summary": "Allow an address again",
+        "operationId": "unsuppress_api_v1_notifications_suppressions__suppression_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "suppression_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Suppression Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "notification"
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "The delivery log",
+        "description": "Who was told what about a shipment, on which channel, and whether it\narrived. Newest first.",
+        "operationId": "list_notifications_api_v1_notifications_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "shipment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shipment Id"
+            }
+          },
+          {
+            "name": "recipient",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 320
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Recipient"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/NotificationStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Channel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel"
+            }
+          },
+          {
+            "name": "template",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Template"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_NotificationSummary_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "notification"
+      }
+    },
+    "/api/v1/notifications/mine": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "The calling courier's",
+        "operationId": "my_notifications_api_v1_notifications_mine_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_NotificationSummary_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "notification"
+      }
+    },
+    "/api/v1/notifications/{notification_id}": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "One notification, with the message as sent",
+        "operationId": "get_notification_api_v1_notifications__notification_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "notification"
+      }
+    },
+    "/api/v1/notifications/{notification_id}/resend": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send a notification again",
+        "description": "Creates a new entry (``resend_of`` the original) and queues it — after a\ncustomer says they never got it, or after fixing a failed one's address.",
+        "operationId": "resend_api_v1_notifications__notification_id__resend_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-service": "notification"
+      }
     }
   },
   "components": {
@@ -6557,6 +7670,15 @@
         ],
         "title": "BatchResult"
       },
+      "Channel": {
+        "type": "string",
+        "enum": [
+          "email",
+          "sms",
+          "push"
+        ],
+        "title": "Channel"
+      },
       "CourierCreate": {
         "properties": {
           "full_name": {
@@ -6845,6 +7967,108 @@
         ],
         "title": "CourierRead"
       },
+      "CourierStats": {
+        "properties": {
+          "courier_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Courier Id"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "assigned": {
+            "type": "integer",
+            "title": "Assigned"
+          },
+          "delivered": {
+            "type": "integer",
+            "title": "Delivered"
+          },
+          "failed_deliveries": {
+            "type": "integer",
+            "title": "Failed Deliveries"
+          },
+          "active_assignments": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Assignments"
+          },
+          "max_active_shipments": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Active Shipments"
+          },
+          "utilisation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Utilisation",
+            "description": "Current load / capacity."
+          }
+        },
+        "type": "object",
+        "required": [
+          "courier_id",
+          "code",
+          "full_name",
+          "status",
+          "assigned",
+          "delivered",
+          "failed_deliveries",
+          "active_assignments",
+          "max_active_shipments",
+          "utilisation"
+        ],
+        "title": "CourierStats"
+      },
       "CourierStatus": {
         "type": "string",
         "enum": [
@@ -7006,6 +8230,49 @@
         "type": "object",
         "title": "CourierUpdate"
       },
+      "CourierUtilisation": {
+        "properties": {
+          "active_couriers": {
+            "type": "integer",
+            "title": "Active Couriers"
+          },
+          "busy_couriers": {
+            "type": "integer",
+            "title": "Busy Couriers",
+            "description": "Active couriers carrying at least one shipment."
+          },
+          "active_assignments": {
+            "type": "integer",
+            "title": "Active Assignments"
+          },
+          "capacity": {
+            "type": "integer",
+            "title": "Capacity",
+            "description": "Sum of the active couriers' max_active_shipments."
+          },
+          "utilisation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Utilisation",
+            "description": "active_assignments / capacity, right now."
+          }
+        },
+        "type": "object",
+        "required": [
+          "active_couriers",
+          "busy_couriers",
+          "active_assignments",
+          "capacity",
+          "utilisation"
+        ],
+        "title": "CourierUtilisation"
+      },
       "DispatchView": {
         "properties": {
           "workflow_id": {
@@ -7108,6 +8375,26 @@
         },
         "type": "object",
         "title": "EndAssignmentRequest"
+      },
+      "FailedEvents": {
+        "properties": {
+          "dead_letters": {
+            "type": "integer",
+            "title": "Dead Letters",
+            "description": "Events a consumer gave up on (dlq.* topics)."
+          },
+          "dispatch_failures": {
+            "type": "integer",
+            "title": "Dispatch Failures",
+            "description": "Dispatch workflows that ended in failure."
+          }
+        },
+        "type": "object",
+        "required": [
+          "dead_letters",
+          "dispatch_failures"
+        ],
+        "title": "FailedEvents"
       },
       "HTTPValidationError": {
         "properties": {
@@ -7248,6 +8535,141 @@
           "updated_at"
         ],
         "title": "InventoryItemRead"
+      },
+      "IssueKind": {
+        "type": "string",
+        "enum": [
+          "dead_letter",
+          "dispatch_failed"
+        ],
+        "title": "IssueKind"
+      },
+      "IssuePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IssueRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "counts"
+        ],
+        "title": "IssuePage"
+      },
+      "IssueRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IssueKind"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "shipment_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipment Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "occurred_at",
+          "reason",
+          "detail",
+          "event_id",
+          "event_type",
+          "shipment_id",
+          "status"
+        ],
+        "title": "IssueRead"
       },
       "JourneyCancel": {
         "properties": {
@@ -7688,6 +9110,23 @@
         ],
         "title": "MessageResponse"
       },
+      "Metric": {
+        "type": "string",
+        "enum": [
+          "created",
+          "dispatched",
+          "delivered",
+          "delivery_failed",
+          "returned",
+          "cancelled",
+          "dispatch_failed",
+          "assigned",
+          "delivery_seconds",
+          "delivered_timed"
+        ],
+        "title": "Metric",
+        "description": "Counters kept per day. ``delivery_seconds`` / ``delivered_timed`` give the\naverage delivery time without storing every duration twice."
+      },
       "Milestone": {
         "type": "string",
         "enum": [
@@ -7701,6 +9140,345 @@
           "returned"
         ],
         "title": "Milestone"
+      },
+      "NotificationRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "recipient": {
+            "type": "string",
+            "title": "Recipient"
+          },
+          "recipient_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Name"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NotificationStatus"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "shipment_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipment Id"
+          },
+          "courier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courier Id"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
+          "resend_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resend Of"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "html": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Html"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "provider_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Message Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "template",
+          "channel",
+          "recipient",
+          "recipient_name",
+          "subject",
+          "status",
+          "attempts",
+          "last_error",
+          "shipment_id",
+          "courier_id",
+          "event_type",
+          "created_at",
+          "sent_at",
+          "resend_of",
+          "body",
+          "html",
+          "event_id",
+          "provider_message_id"
+        ],
+        "title": "NotificationRead",
+        "description": "With the message itself: the text body and, for email, the HTML."
+      },
+      "NotificationStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "sent",
+          "failed",
+          "suppressed"
+        ],
+        "title": "NotificationStatus"
+      },
+      "NotificationSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "recipient": {
+            "type": "string",
+            "title": "Recipient"
+          },
+          "recipient_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Name"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NotificationStatus"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "shipment_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipment Id"
+          },
+          "courier_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Courier Id"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
+          "resend_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resend Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "template",
+          "channel",
+          "recipient",
+          "recipient_name",
+          "subject",
+          "status",
+          "attempts",
+          "last_error",
+          "shipment_id",
+          "courier_id",
+          "event_type",
+          "created_at",
+          "sent_at",
+          "resend_of"
+        ],
+        "title": "NotificationSummary"
       },
       "OperatingHoursRead": {
         "properties": {
@@ -8147,6 +9925,38 @@
         ],
         "title": "Page[InventoryItemRead]"
       },
+      "Page_NotificationSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Total matching records, ignoring pagination."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[NotificationSummary]"
+      },
       "Page_ShipmentSummary_": {
         "properties": {
           "items": {
@@ -8297,6 +10107,45 @@
         ],
         "title": "PasswordChange"
       },
+      "Period": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "title": "From"
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "title": "To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "Period"
+      },
+      "Point": {
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day",
+          "value"
+        ],
+        "title": "Point"
+      },
       "Problem": {
         "properties": {
           "code": {
@@ -8408,6 +10257,43 @@
         "example": {
           "reason": "Courier's vehicle broke down"
         }
+      },
+      "RecomputeAccepted": {
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          },
+          "queued": {
+            "type": "boolean",
+            "title": "Queued",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "period"
+        ],
+        "title": "RecomputeAccepted"
+      },
+      "RecomputeRequest": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "title": "From"
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "title": "To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "RecomputeRequest"
       },
       "RefreshRequest": {
         "properties": {
@@ -8708,6 +10594,36 @@
         ],
         "title": "ReservedLine",
         "description": "A held line plus the SKU facts Shipment snapshots onto its items."
+      },
+      "Series": {
+        "properties": {
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metric",
+          "period",
+          "points",
+          "total"
+        ],
+        "title": "Series"
       },
       "ServiceLevel": {
         "type": "string",
@@ -10154,6 +12070,203 @@
           "transfer_out"
         ],
         "title": "StockMovementType"
+      },
+      "Summary": {
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          },
+          "total_shipments": {
+            "type": "integer",
+            "title": "Total Shipments",
+            "description": "Shipments created in the period."
+          },
+          "dispatched": {
+            "type": "integer",
+            "title": "Dispatched"
+          },
+          "delivered": {
+            "type": "integer",
+            "title": "Delivered"
+          },
+          "failed_deliveries": {
+            "type": "integer",
+            "title": "Failed Deliveries",
+            "description": "Failed delivery attempts."
+          },
+          "failed_delivery_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Delivery Rate"
+          },
+          "average_delivery_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Delivery Hours",
+            "description": "Mean time from creation to delivery, for shipments delivered in the period."
+          },
+          "returns": {
+            "type": "integer",
+            "title": "Returns"
+          },
+          "return_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Rate",
+            "description": "Returns started per shipment dispatched."
+          },
+          "cancelled": {
+            "type": "integer",
+            "title": "Cancelled"
+          },
+          "courier_utilisation": {
+            "$ref": "#/components/schemas/CourierUtilisation"
+          },
+          "warehouse_throughput": {
+            "items": {
+              "$ref": "#/components/schemas/WarehouseThroughput"
+            },
+            "type": "array",
+            "title": "Warehouse Throughput"
+          },
+          "failed_events": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailedEvents"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline-wide; only for admin and customer support."
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "total_shipments",
+          "dispatched",
+          "delivered",
+          "failed_deliveries",
+          "failed_delivery_rate",
+          "average_delivery_hours",
+          "returns",
+          "return_rate",
+          "cancelled",
+          "courier_utilisation",
+          "warehouse_throughput",
+          "failed_events"
+        ],
+        "title": "Summary",
+        "description": "The nine metrics for a period."
+      },
+      "SuppressionCreate": {
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "address": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Address"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "channel",
+          "address"
+        ],
+        "title": "SuppressionCreate",
+        "example": {
+          "address": "+923001234567",
+          "channel": "sms",
+          "reason": "Asked to stop"
+        }
+      },
+      "SuppressionRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "address": {
+            "type": "string",
+            "title": "Address"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "channel",
+          "address",
+          "reason",
+          "created_by",
+          "created_at"
+        ],
+        "title": "SuppressionRead"
       },
       "TokenPair": {
         "properties": {
@@ -11811,6 +13924,79 @@
         ],
         "title": "WarehouseSummary",
         "description": "Compact reference embedded in shipments, assignments and listings."
+      },
+      "WarehouseThroughput": {
+        "properties": {
+          "warehouse_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Warehouse Id"
+          },
+          "warehouse_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Code"
+          },
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          },
+          "dispatched": {
+            "type": "integer",
+            "title": "Dispatched"
+          },
+          "delivered": {
+            "type": "integer",
+            "title": "Delivered"
+          },
+          "failed_deliveries": {
+            "type": "integer",
+            "title": "Failed Deliveries"
+          },
+          "returns": {
+            "type": "integer",
+            "title": "Returns"
+          },
+          "dispatch_failures": {
+            "type": "integer",
+            "title": "Dispatch Failures"
+          },
+          "average_delivery_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Delivery Hours"
+          },
+          "dispatched_per_day": {
+            "type": "number",
+            "title": "Dispatched Per Day"
+          }
+        },
+        "type": "object",
+        "required": [
+          "warehouse_id",
+          "warehouse_code",
+          "created",
+          "dispatched",
+          "delivered",
+          "failed_deliveries",
+          "returns",
+          "dispatch_failures",
+          "average_delivery_hours",
+          "dispatched_per_day"
+        ],
+        "title": "WarehouseThroughput"
       },
       "WarehouseType": {
         "type": "string",

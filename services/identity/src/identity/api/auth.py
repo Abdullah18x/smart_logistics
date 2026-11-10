@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from identity import revocation
 from identity.api.deps import (
     AuthServiceDep,
     ClientInfo,
@@ -95,6 +96,7 @@ async def logout(
         return MessageResponse(message=f"Signed out of {count} session(s).")
     await auth.logout(payload.refresh_token, user_id=principal.user_id)
     await session.commit()
+    await revocation.revoke_token(principal)
     return MessageResponse(message="Signed out.")
 
 

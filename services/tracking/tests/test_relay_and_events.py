@@ -13,7 +13,7 @@ class FakePublisher:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str, EventEnvelope]] = []
 
-    async def send(self, topic: str, key: str, value: bytes) -> None:
+    async def send(self, topic: str, key: str, value: bytes, headers=None) -> None:
         self.sent.append((topic, key, EventEnvelope.from_bytes(value)))
 
 
@@ -85,3 +85,32 @@ async def test_returns_started_elsewhere_join_the_timeline_once(client):
     assert [e["milestone"] for e in events].count("return_initiated") == 1
     assert (await store.journeys.find_one({"_id": sid}))["milestone"] == "return_initiated"
     assert at(0)  # helper stays importable
+
+
+def test_published_events_match_their_contract_and_carry_the_trace():
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    from sl_platform.contracts import ContractError
+    from tracking.relay import envelope_for
+
+    event = {
+        "_id": str(_uuid.uuid4()),
+        "type": "milestone",
+        "shipment_id": str(_uuid.uuid4()),
+        "milestone": "picked_up",
+        "occurred_at": datetime.now(UTC),
+        "courier_id": str(_uuid.uuid4()),
+        "location": {"latitude": 24.86, "longitude": 67.0, "accuracy_m": None},
+        "failure_reason": None,
+        "source": "courier",
+        "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+    }
+    envelope = envelope_for(event)
+    assert envelope.traceparent == event["traceparent"]
+    try:
+        envelope_for({**event, "milestone": "teleported"})
+    except ContractError as exc:
+        assert "milestone" in str(exc)
+    else:
+        raise AssertionError("an unknown milestone must break the contract")

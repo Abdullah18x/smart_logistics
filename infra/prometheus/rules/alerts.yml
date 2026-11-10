@@ -1,0 +1,104 @@
+# Alert rules. Prometheus evaluates them (state at http://localhost:9090/alerts) and
+# Grafana shows them; no Alertmanager is wired up locally, so nothing is paged.
+# Thresholds follow the PRD: p95 < 150 ms reads / < 300 ms writes, event lag p95 < 5 s.
+groups:
+  - name: availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }} ({{ $labels.job }}) is not answering scrapes"
+          description: "{{ $labels.instance }} has been down for a minute."
+
+      - alert: HighErrorRate
+        expr: |
+          sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum by (service) (rate(http_requests_total[5m])), 1e-9) > 0.05
+          and sum by (service) (rate(http_requests_total[5m])) > 0.1
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }}: more than 5% of requests fail with 5xx"
+
+  - name: latency
+    rules:
+      - alert: SlowReads
+        expr: |
+          histogram_quantile(0.95, sum by (service, le)
+            (rate(http_request_duration_seconds_bucket{method="GET"}[5m]))) > 0.15
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }}: read p95 above 150 ms"
+
+      - alert: SlowWrites
+        expr: |
+          histogram_quantile(0.95, sum by (service, le)
+            (rate(http_request_duration_seconds_bucket{method!="GET"}[5m]))) > 0.3
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }}: write p95 above 300 ms"
+
+  - name: event-pipeline
+    rules:
+      - alert: OutboxStuck
+        expr: max by (service) (outbox_oldest_pending_age_seconds) > 60
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }}: events not published for over a minute"
+          description: "The relay is stuck or Kafka is unreachable; events wait in the outbox."
+
+      - alert: EventLagHigh
+        expr: |
+          histogram_quantile(0.95, sum by (consumer, le)
+            (rate(event_end_to_end_seconds_bucket[5m]))) > 5
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.consumer }}: event lag p95 above 5 s"
+
+      - alert: ConsumerFallingBehind
+        expr: sum by (consumer) (kafka_consumer_lag_messages) > 1000
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.consumer }} is {{ $value }} messages behind"
+
+      - alert: DeadLetters
+        expr: sum by (consumer, reason) (increase(dead_letters_total[10m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.consumer }} dead-lettered events ({{ $labels.reason }})"
+          description: "Inspect with ./dev.sh dlq list {{ $labels.consumer }}; replay once fixed."
+
+      - alert: SchemaRegistryUnreachable
+        expr: sum by (consumer) (increase(events_unvalidated_total{reason="registry_unavailable"}[10m])) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.consumer }} is handling events without registry validation"
+
+  - name: background-work
+    rules:
+      - alert: CeleryTasksFailing
+        expr: sum by (task) (increase(celery_tasks_total{outcome="failed"}[15m])) > 3
+        labels: {severity: warning}
+        annotations:
+          summary: "Celery task {{ $labels.task }} failed {{ $value }} times in 15 minutes"
+
+      - alert: NotificationsFailing
+        expr: sum by (channel) (increase(notifications_total{outcome="failed"}[15m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.channel }} notifications are failing after every retry"
+
+      - alert: DispatchWorkflowsFailing
+        expr: sum(increase({__name__=~"temporal_workflow_failed(_total)?"}[15m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Dispatch workflows failed in the last 15 minutes"
+          description: "Check the Temporal UI (:8233) and GET /api/v1/analytics/issues."

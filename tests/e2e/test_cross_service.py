@@ -20,6 +20,7 @@ def shipment_body(warehouse_id, *lines):
         "destination_address": {
             "contact_name": "Ayesha Khan",
             "contact_phone": "+923001234567",
+            "contact_email": "ayesha.khan@example.com",
             "line1": "House 12, Street 4, DHA Phase 6",
             "city": "Karachi",
         },

@@ -1,7 +1,7 @@
 # Database Reference
 
-**Engine:** PostgreSQL 16 · **Databases:** 5 (one per service) · **Service tables:** 21 · **Platform tables in each:** 3 · plus MongoDB for tracking ([below](#tracking-mongodb))
-**Generated:** 2026-10-13 by `scripts/generate_db_docs.py` (`./dev.sh docs`). Do not edit by hand.
+**Engine:** PostgreSQL 16 · **Databases:** 7 (one per service) · **Service tables:** 30 · **Platform tables in each:** 3 · plus MongoDB for tracking ([below](#tracking-mongodb))
+**Generated:** 2026-11-10 by `scripts/generate_db_docs.py` (`./dev.sh docs`). Do not edit by hand.
 
 Generated from the SQLAlchemy models, which the Alembic migrations are checked against (`./dev.sh check`). Table descriptions are the model docstrings. Design rationale lives in [ARCHITECTURE.md](ARCHITECTURE.md) and the [ADRs](adr/).
 
@@ -18,6 +18,8 @@ Generated from the SQLAlchemy models, which the Alembic migrations are checked a
 | **inventory** | `inventory-db` (:5443) | The SKU catalog, stock positions, holds, the stock ledger, a warehouse replica. | 5 |
 | **shipment** | `shipment-db` (:5444) | Shipments with their items, packages and audit trail, a warehouse replica. | 7 |
 | **courier** | `courier-db` (:5445) | Courier profiles, shipment assignments with their history, a warehouse replica. | 3 |
+| **analytics** | `analytics-db` (:5446) | Milestone facts, latest shipment state, daily counters per warehouse and courier, a courier replica, and pipeline issues (dead letters, failed dispatches). | 5 |
+| **notification** | `notification-db` (:5447) | Every message sent (the delivery log), suppressed addresses, recipient and courier contact replicas. | 4 |
 
 ### Conventions
 
@@ -266,15 +268,15 @@ snapshot on `warehouse.events`, which Identity, Inventory and Shipment consume.
 | `deleted_at` | timestamptz | yes |  |
 | `deleted_by` | uuid | yes |  |
 
-- **index** `ix_warehouses_type_status` `(type, status)`
 - **index** `ix_warehouses_active_city` `(city, status)` where `deleted_at IS NULL`
 - **index** `ix_warehouses_city_status` `(city, status)`
-- **check** `ck_warehouses_latitude_range`: `latitude IS NULL OR (latitude BETWEEN -90 AND 90)`
-- **check** `ck_warehouses_entrance_longitude_range`: `entrance_longitude IS NULL OR (entrance_longitude BETWEEN -180 AND 180)`
-- **check** `ck_warehouses_entrance_latitude_range`: `entrance_latitude IS NULL OR (entrance_latitude BETWEEN -90 AND 90)`
-- **check** `ck_warehouses_geofence_radius_positive`: `geofence_radius_m > 0`
-- **check** `ck_warehouses_longitude_range`: `longitude IS NULL OR (longitude BETWEEN -180 AND 180)`
+- **index** `ix_warehouses_type_status` `(type, status)`
 - **check** `ck_warehouses_capacity_positive`: `capacity_units > 0`
+- **check** `ck_warehouses_longitude_range`: `longitude IS NULL OR (longitude BETWEEN -180 AND 180)`
+- **check** `ck_warehouses_entrance_longitude_range`: `entrance_longitude IS NULL OR (entrance_longitude BETWEEN -180 AND 180)`
+- **check** `ck_warehouses_geofence_radius_positive`: `geofence_radius_m > 0`
+- **check** `ck_warehouses_latitude_range`: `latitude IS NULL OR (latitude BETWEEN -90 AND 90)`
+- **check** `ck_warehouses_entrance_latitude_range`: `entrance_latitude IS NULL OR (entrance_latitude BETWEEN -90 AND 90)`
 
 ### `warehouse_operating_hours`
 
@@ -292,8 +294,8 @@ The weekly opening schedule: one row per weekday, in the warehouse's local timez
 | `updated_at` | timestamptz | no | default `now()` |
 
 - **unique** `(warehouse_id, day_of_week)`
-- **check** `ck_warehouse_operating_hours_valid_window`: `(is_closed AND opens_at IS NULL AND closes_at IS NULL) OR (NOT is_closed AND opens_at IS NOT NULL AND closes_at IS NOT NULL AND closes_at > opens_at)`
 - **check** `ck_warehouse_operating_hours_day_of_week_range`: `day_of_week BETWEEN 1 AND 7`
+- **check** `ck_warehouse_operating_hours_valid_window`: `(is_closed AND opens_at IS NULL AND closes_at IS NULL) OR (NOT is_closed AND opens_at IS NOT NULL AND closes_at IS NOT NULL AND closes_at > opens_at)`
 
 ### `warehouse_zones`
 
@@ -437,8 +439,8 @@ Product master. Lives here because only stock and snapshots ever read it.
 | `deleted_by` | uuid | yes |  |
 
 - **index** `ix_skus_category_active` `(category, is_active)`
-- **check** `ck_skus_dimensions_positive`: `length_mm > 0 AND width_mm > 0 AND height_mm > 0`
 - **check** `ck_skus_weight_positive`: `weight_g > 0`
+- **check** `ck_skus_dimensions_positive`: `length_mm > 0 AND width_mm > 0 AND height_mm > 0`
 
 ### `warehouse_refs`
 
@@ -482,8 +484,8 @@ warehouses live in the Warehouse service's database.
 
 - **unique** `(warehouse_id, sku_id)`
 - **check** `ck_inventory_items_reserved_within_on_hand`: `reserved_qty <= on_hand_qty`
-- **check** `ck_inventory_items_reserved_non_negative`: `reserved_qty >= 0`
 - **check** `ck_inventory_items_on_hand_non_negative`: `on_hand_qty >= 0`
+- **check** `ck_inventory_items_reserved_non_negative`: `reserved_qty >= 0`
 
 ### `inventory_reservations`
 
@@ -535,8 +537,8 @@ Append-only ledger: one row per stock change, never updated or deleted.
 | `notes` | varchar(500) | yes |  |
 | `occurred_at` | timestamptz | no | default `now()` |
 
-- **index** `ix_stock_movements_warehouse_occurred` `(warehouse_id, occurred_at)`
 - **index** `ix_stock_movements_reference` `(reference_type, reference_id)`
+- **index** `ix_stock_movements_warehouse_occurred` `(warehouse_id, occurred_at)`
 - **check** `ck_stock_movements_delta_non_zero`: `quantity_delta <> 0`
 
 ---
@@ -679,8 +681,8 @@ A snapshot of where this parcel was sent — never a shared customer address.
 | `created_at` | timestamptz | no | default `now()` |
 | `updated_at` | timestamptz | no | default `now()` |
 
-- **check** `ck_addresses_longitude_range`: `longitude IS NULL OR (longitude BETWEEN -180 AND 180)`
 - **check** `ck_addresses_latitude_range`: `latitude IS NULL OR (latitude BETWEEN -90 AND 90)`
+- **check** `ck_addresses_longitude_range`: `longitude IS NULL OR (longitude BETWEEN -180 AND 180)`
 
 ### `warehouse_refs`
 
@@ -737,9 +739,9 @@ both apply (the monolith incremented it by hand and checked nothing).
 | `deleted_at` | timestamptz | yes |  |
 | `deleted_by` | uuid | yes |  |
 
-- **index** `ix_shipments_active_status` `(status, created_at)` where `deleted_at IS NULL`
-- **index** `ix_shipments_courier_status` `(courier_id, status)`
 - **index** `ix_shipments_status_priority` `(status, priority)`
+- **index** `ix_shipments_courier_status` `(courier_id, status)`
+- **index** `ix_shipments_active_status` `(status, created_at)` where `deleted_at IS NULL`
 - **index** `ix_shipments_warehouse_status` `(origin_warehouse_id, status)`
 - **check** `ck_shipments_attempts_non_negative`: `delivery_attempt_count >= 0`
 - **check** `ck_shipments_weight_non_negative`: `total_weight_g >= 0`
@@ -920,9 +922,9 @@ capacity whatever the code above does.
 | `deleted_by` | uuid | yes |  |
 
 - **index** `ix_couriers_assignable` `(home_city, availability, status)` where `deleted_at IS NULL`
-- **check** `ck_couriers_weight_positive`: `max_weight_g IS NULL OR max_weight_g > 0`
-- **check** `ck_couriers_load_within_capacity`: `active_assignments >= 0 AND active_assignments <= max_active_shipments`
 - **check** `ck_couriers_capacity_positive`: `max_active_shipments > 0`
+- **check** `ck_couriers_load_within_capacity`: `active_assignments >= 0 AND active_assignments <= max_active_shipments`
+- **check** `ck_couriers_weight_positive`: `max_weight_g IS NULL OR max_weight_g > 0`
 
 ### `warehouse_refs`
 
@@ -968,6 +970,628 @@ impossible to double-book.
 - **index** `ix_courier_assignments_shipment` `(shipment_id, assigned_at)`
 - **unique index** `uq_courier_assignments_active_shipment` `(shipment_id)` where `status = 'active'`
 - **index** `ix_courier_assignments_courier_status` `(courier_id, status)`
+
+---
+
+## analytics
+
+Milestone facts, latest shipment state, daily counters per warehouse and courier, a courier replica, and pipeline issues (dead letters, failed dispatches).
+
+```mermaid
+erDiagram
+    couriers {
+        uuid id PK
+        varchar code
+        varchar full_name
+        varchar status
+        uuid home_warehouse_id
+        integer max_active_shipments
+        integer active_assignments
+        boolean deleted
+        timestamptz updated_at
+    }
+    daily_rollups {
+        date day PK
+        rollup_scope scope PK
+        uuid scope_id PK
+        varchar metric PK
+        bigint value
+    }
+    milestones {
+        uuid event_id PK
+        uuid shipment_id
+        varchar kind
+        timestamptz occurred_at
+        uuid warehouse_id
+        uuid courier_id
+        text reason
+    }
+    pipeline_issues {
+        issue_kind kind
+        varchar source
+        timestamptz occurred_at
+        varchar reason
+        text detail
+        varchar event_id
+        varchar event_type
+        uuid shipment_id
+        varchar status
+        varchar origin
+        uuid id PK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    shipments {
+        uuid id PK
+        varchar reference_no
+        varchar status
+        integer version
+        varchar service_level
+        uuid warehouse_id
+        varchar warehouse_code
+        uuid courier_id
+        timestamptz created_at_source
+        timestamptz dispatched_at
+        timestamptz delivered_at
+        integer failed_attempts
+        timestamptz created_at
+        timestamptz updated_at
+    }
+```
+
+### `couriers`
+
+What utilisation needs: capacity and current load, from courier events.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `code` | varchar(40) | no |  |
+| `full_name` | varchar(200) | no |  |
+| `status` | varchar(20) | no |  |
+| `home_warehouse_id` | uuid | yes |  |
+| `max_active_shipments` | integer | no |  |
+| `active_assignments` | integer | no |  |
+| `deleted` | boolean | no |  |
+| `updated_at` | timestamptz | no |  |
+
+### `daily_rollups`
+
+Base class used for declarative class definitions.
+
+The :class:`_orm.DeclarativeBase` allows for the creation of new
+declarative bases in such a way that is compatible with type checkers::
+
+
+    from sqlalchemy.orm import DeclarativeBase
+
+
+    class Base(DeclarativeBase):
+        pass
+
+The above `Base` class is now usable as the base for new declarative
+mappings.  The superclass makes use of the `__init_subclass__()`
+method to set up new classes and metaclasses aren't used.
+
+When first used, the :class:`_orm.DeclarativeBase` class instantiates a new
+:class:`_orm.registry` to be used with the base, assuming one was not
+provided explicitly. The :class:`_orm.DeclarativeBase` class supports
+class-level attributes which act as parameters for the construction of this
+registry; such as to indicate a specific :class:`_schema.MetaData`
+collection as well as a specific value for
+:paramref:`_orm.registry.type_annotation_map`::
+
+    from typing import Annotated
+
+    from sqlalchemy import BigInteger
+    from sqlalchemy import MetaData
+    from sqlalchemy import String
+    from sqlalchemy.orm import DeclarativeBase
+
+    bigint = Annotated[int, "bigint"]
+    my_metadata = MetaData()
+
+
+    class Base(DeclarativeBase):
+        metadata = my_metadata
+        type_annotation_map = {
+            str: String().with_variant(String(255), "mysql", "mariadb"),
+            bigint: BigInteger(),
+        }
+
+Class-level attributes which may be specified include:
+
+:param metadata: optional :class:`_schema.MetaData` collection.
+ If a :class:`_orm.registry` is constructed automatically, this
+ :class:`_schema.MetaData` collection will be used to construct it.
+ Otherwise, the local :class:`_schema.MetaData` collection will supersede
+ that used by an existing :class:`_orm.registry` passed using the
+ :paramref:`_orm.DeclarativeBase.registry` parameter.
+:param type_annotation_map: optional type annotation map that will be
+ passed to the :class:`_orm.registry` as
+ :paramref:`_orm.registry.type_annotation_map`.
+:param registry: supply a pre-existing :class:`_orm.registry` directly.
+
+.. versionadded:: 2.0  Added :class:`.DeclarativeBase`, so that declarative
+   base classes may be constructed in such a way that is also recognized
+   by :pep:`484` type checkers.   As a result, :class:`.DeclarativeBase`
+   and other subclassing-oriented APIs should be seen as
+   superseding previous "class returned by a function" APIs, namely
+   :func:`_orm.declarative_base` and :meth:`_orm.registry.generate_base`,
+   where the base class returned cannot be recognized by type checkers
+   without using plugins.
+
+**__init__ behavior**
+
+In a plain Python class, the base-most `__init__()` method in the class
+hierarchy is `object.__init__()`, which accepts no arguments. However,
+when the :class:`_orm.DeclarativeBase` subclass is first declared, the
+class is given an `__init__()` method that links to the
+:paramref:`_orm.registry.constructor` constructor function, if no
+`__init__()` method is already present; this is the usual declarative
+constructor that will assign keyword arguments as attributes on the
+instance, assuming those attributes are established at the class level
+(i.e. are mapped, or are linked to a descriptor). This constructor is
+**never accessed by a mapped class without being called explicitly via
+super()**, as mapped classes are themselves given an `__init__()` method
+directly which calls :paramref:`_orm.registry.constructor`, so in the
+default case works independently of what the base-most `__init__()`
+method does.
+
+.. versionchanged:: 2.0.1  :class:`_orm.DeclarativeBase` has a default
+   constructor that links to :paramref:`_orm.registry.constructor` by
+   default, so that calls to `super().__init__()` can access this
+   constructor. Previously, due to an implementation mistake, this default
+   constructor was missing, and calling `super().__init__()` would invoke
+   `object.__init__()`.
+
+The :class:`_orm.DeclarativeBase` subclass may also declare an explicit
+`__init__()` method which will replace the use of the
+:paramref:`_orm.registry.constructor` function at this level::
+
+    class Base(DeclarativeBase):
+        def __init__(self, id=None):
+            self.id = id
+
+Mapped classes still will not invoke this constructor implicitly; it
+remains only accessible by calling `super().__init__()`::
+
+    class MyClass(Base):
+        def __init__(self, id=None, name=None):
+            self.name = name
+            super().__init__(id=id)
+
+Note that this is a different behavior from what functions like the legacy
+:func:`_orm.declarative_base` would do; the base created by those functions
+would always install :paramref:`_orm.registry.constructor` for
+`__init__()`.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `day` | date | no | primary key |
+| `scope` | rollup_scope | no | primary key |
+| `scope_id` | uuid | no | primary key |
+| `metric` | varchar(30) | no | primary key |
+| `value` | bigint | no |  |
+
+- **index** `ix_daily_rollups_scope_day` `(scope, scope_id, day)`
+
+### `milestones`
+
+Base class used for declarative class definitions.
+
+The :class:`_orm.DeclarativeBase` allows for the creation of new
+declarative bases in such a way that is compatible with type checkers::
+
+
+    from sqlalchemy.orm import DeclarativeBase
+
+
+    class Base(DeclarativeBase):
+        pass
+
+The above `Base` class is now usable as the base for new declarative
+mappings.  The superclass makes use of the `__init_subclass__()`
+method to set up new classes and metaclasses aren't used.
+
+When first used, the :class:`_orm.DeclarativeBase` class instantiates a new
+:class:`_orm.registry` to be used with the base, assuming one was not
+provided explicitly. The :class:`_orm.DeclarativeBase` class supports
+class-level attributes which act as parameters for the construction of this
+registry; such as to indicate a specific :class:`_schema.MetaData`
+collection as well as a specific value for
+:paramref:`_orm.registry.type_annotation_map`::
+
+    from typing import Annotated
+
+    from sqlalchemy import BigInteger
+    from sqlalchemy import MetaData
+    from sqlalchemy import String
+    from sqlalchemy.orm import DeclarativeBase
+
+    bigint = Annotated[int, "bigint"]
+    my_metadata = MetaData()
+
+
+    class Base(DeclarativeBase):
+        metadata = my_metadata
+        type_annotation_map = {
+            str: String().with_variant(String(255), "mysql", "mariadb"),
+            bigint: BigInteger(),
+        }
+
+Class-level attributes which may be specified include:
+
+:param metadata: optional :class:`_schema.MetaData` collection.
+ If a :class:`_orm.registry` is constructed automatically, this
+ :class:`_schema.MetaData` collection will be used to construct it.
+ Otherwise, the local :class:`_schema.MetaData` collection will supersede
+ that used by an existing :class:`_orm.registry` passed using the
+ :paramref:`_orm.DeclarativeBase.registry` parameter.
+:param type_annotation_map: optional type annotation map that will be
+ passed to the :class:`_orm.registry` as
+ :paramref:`_orm.registry.type_annotation_map`.
+:param registry: supply a pre-existing :class:`_orm.registry` directly.
+
+.. versionadded:: 2.0  Added :class:`.DeclarativeBase`, so that declarative
+   base classes may be constructed in such a way that is also recognized
+   by :pep:`484` type checkers.   As a result, :class:`.DeclarativeBase`
+   and other subclassing-oriented APIs should be seen as
+   superseding previous "class returned by a function" APIs, namely
+   :func:`_orm.declarative_base` and :meth:`_orm.registry.generate_base`,
+   where the base class returned cannot be recognized by type checkers
+   without using plugins.
+
+**__init__ behavior**
+
+In a plain Python class, the base-most `__init__()` method in the class
+hierarchy is `object.__init__()`, which accepts no arguments. However,
+when the :class:`_orm.DeclarativeBase` subclass is first declared, the
+class is given an `__init__()` method that links to the
+:paramref:`_orm.registry.constructor` constructor function, if no
+`__init__()` method is already present; this is the usual declarative
+constructor that will assign keyword arguments as attributes on the
+instance, assuming those attributes are established at the class level
+(i.e. are mapped, or are linked to a descriptor). This constructor is
+**never accessed by a mapped class without being called explicitly via
+super()**, as mapped classes are themselves given an `__init__()` method
+directly which calls :paramref:`_orm.registry.constructor`, so in the
+default case works independently of what the base-most `__init__()`
+method does.
+
+.. versionchanged:: 2.0.1  :class:`_orm.DeclarativeBase` has a default
+   constructor that links to :paramref:`_orm.registry.constructor` by
+   default, so that calls to `super().__init__()` can access this
+   constructor. Previously, due to an implementation mistake, this default
+   constructor was missing, and calling `super().__init__()` would invoke
+   `object.__init__()`.
+
+The :class:`_orm.DeclarativeBase` subclass may also declare an explicit
+`__init__()` method which will replace the use of the
+:paramref:`_orm.registry.constructor` function at this level::
+
+    class Base(DeclarativeBase):
+        def __init__(self, id=None):
+            self.id = id
+
+Mapped classes still will not invoke this constructor implicitly; it
+remains only accessible by calling `super().__init__()`::
+
+    class MyClass(Base):
+        def __init__(self, id=None, name=None):
+            self.name = name
+            super().__init__(id=id)
+
+Note that this is a different behavior from what functions like the legacy
+:func:`_orm.declarative_base` would do; the base created by those functions
+would always install :paramref:`_orm.registry.constructor` for
+`__init__()`.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `event_id` | uuid | no | primary key |
+| `shipment_id` | uuid | no |  |
+| `kind` | varchar(40) | no |  |
+| `occurred_at` | timestamptz | no |  |
+| `warehouse_id` | uuid | yes |  |
+| `courier_id` | uuid | yes |  |
+| `reason` | text | yes |  |
+
+- **index** `ix_milestones_shipment_kind` `(shipment_id, kind)`
+
+### `pipeline_issues`
+
+Opaque, non-enumerable identifiers.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `kind` | issue_kind | no |  |
+| `source` | varchar(80) | no |  |
+| `occurred_at` | timestamptz | no |  |
+| `reason` | varchar(80) | no |  |
+| `detail` | text | yes |  |
+| `event_id` | varchar(64) | yes |  |
+| `event_type` | varchar(80) | yes |  |
+| `shipment_id` | uuid | yes |  |
+| `status` | varchar(20) | no |  |
+| `origin` | varchar(200) | no |  |
+| `created_at` | timestamptz | no | default `now()` |
+| `updated_at` | timestamptz | no | default `now()` |
+
+### `shipments`
+
+Base class used for declarative class definitions.
+
+The :class:`_orm.DeclarativeBase` allows for the creation of new
+declarative bases in such a way that is compatible with type checkers::
+
+
+    from sqlalchemy.orm import DeclarativeBase
+
+
+    class Base(DeclarativeBase):
+        pass
+
+The above `Base` class is now usable as the base for new declarative
+mappings.  The superclass makes use of the `__init_subclass__()`
+method to set up new classes and metaclasses aren't used.
+
+When first used, the :class:`_orm.DeclarativeBase` class instantiates a new
+:class:`_orm.registry` to be used with the base, assuming one was not
+provided explicitly. The :class:`_orm.DeclarativeBase` class supports
+class-level attributes which act as parameters for the construction of this
+registry; such as to indicate a specific :class:`_schema.MetaData`
+collection as well as a specific value for
+:paramref:`_orm.registry.type_annotation_map`::
+
+    from typing import Annotated
+
+    from sqlalchemy import BigInteger
+    from sqlalchemy import MetaData
+    from sqlalchemy import String
+    from sqlalchemy.orm import DeclarativeBase
+
+    bigint = Annotated[int, "bigint"]
+    my_metadata = MetaData()
+
+
+    class Base(DeclarativeBase):
+        metadata = my_metadata
+        type_annotation_map = {
+            str: String().with_variant(String(255), "mysql", "mariadb"),
+            bigint: BigInteger(),
+        }
+
+Class-level attributes which may be specified include:
+
+:param metadata: optional :class:`_schema.MetaData` collection.
+ If a :class:`_orm.registry` is constructed automatically, this
+ :class:`_schema.MetaData` collection will be used to construct it.
+ Otherwise, the local :class:`_schema.MetaData` collection will supersede
+ that used by an existing :class:`_orm.registry` passed using the
+ :paramref:`_orm.DeclarativeBase.registry` parameter.
+:param type_annotation_map: optional type annotation map that will be
+ passed to the :class:`_orm.registry` as
+ :paramref:`_orm.registry.type_annotation_map`.
+:param registry: supply a pre-existing :class:`_orm.registry` directly.
+
+.. versionadded:: 2.0  Added :class:`.DeclarativeBase`, so that declarative
+   base classes may be constructed in such a way that is also recognized
+   by :pep:`484` type checkers.   As a result, :class:`.DeclarativeBase`
+   and other subclassing-oriented APIs should be seen as
+   superseding previous "class returned by a function" APIs, namely
+   :func:`_orm.declarative_base` and :meth:`_orm.registry.generate_base`,
+   where the base class returned cannot be recognized by type checkers
+   without using plugins.
+
+**__init__ behavior**
+
+In a plain Python class, the base-most `__init__()` method in the class
+hierarchy is `object.__init__()`, which accepts no arguments. However,
+when the :class:`_orm.DeclarativeBase` subclass is first declared, the
+class is given an `__init__()` method that links to the
+:paramref:`_orm.registry.constructor` constructor function, if no
+`__init__()` method is already present; this is the usual declarative
+constructor that will assign keyword arguments as attributes on the
+instance, assuming those attributes are established at the class level
+(i.e. are mapped, or are linked to a descriptor). This constructor is
+**never accessed by a mapped class without being called explicitly via
+super()**, as mapped classes are themselves given an `__init__()` method
+directly which calls :paramref:`_orm.registry.constructor`, so in the
+default case works independently of what the base-most `__init__()`
+method does.
+
+.. versionchanged:: 2.0.1  :class:`_orm.DeclarativeBase` has a default
+   constructor that links to :paramref:`_orm.registry.constructor` by
+   default, so that calls to `super().__init__()` can access this
+   constructor. Previously, due to an implementation mistake, this default
+   constructor was missing, and calling `super().__init__()` would invoke
+   `object.__init__()`.
+
+The :class:`_orm.DeclarativeBase` subclass may also declare an explicit
+`__init__()` method which will replace the use of the
+:paramref:`_orm.registry.constructor` function at this level::
+
+    class Base(DeclarativeBase):
+        def __init__(self, id=None):
+            self.id = id
+
+Mapped classes still will not invoke this constructor implicitly; it
+remains only accessible by calling `super().__init__()`::
+
+    class MyClass(Base):
+        def __init__(self, id=None, name=None):
+            self.name = name
+            super().__init__(id=id)
+
+Note that this is a different behavior from what functions like the legacy
+:func:`_orm.declarative_base` would do; the base created by those functions
+would always install :paramref:`_orm.registry.constructor` for
+`__init__()`.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `reference_no` | varchar(40) | no |  |
+| `status` | varchar(40) | no |  |
+| `version` | integer | no |  |
+| `service_level` | varchar(20) | yes |  |
+| `warehouse_id` | uuid | yes |  |
+| `warehouse_code` | varchar(40) | yes |  |
+| `courier_id` | uuid | yes |  |
+| `created_at_source` | timestamptz | yes |  |
+| `dispatched_at` | timestamptz | yes |  |
+| `delivered_at` | timestamptz | yes |  |
+| `failed_attempts` | integer | no |  |
+| `created_at` | timestamptz | no | default `now()` |
+| `updated_at` | timestamptz | no | default `now()` |
+
+- **index** `ix_shipments_warehouse_status` `(warehouse_id, status)`
+
+---
+
+## notification
+
+Every message sent (the delivery log), suppressed addresses, recipient and courier contact replicas.
+
+```mermaid
+erDiagram
+    courier_contacts {
+        uuid courier_id PK
+        varchar code
+        varchar full_name
+        varchar phone
+        varchar email
+        boolean deleted
+        timestamptz source_updated_at
+    }
+    notifications {
+        uuid event_id
+        varchar event_type
+        uuid shipment_id
+        uuid courier_id
+        varchar template
+        notification_channel channel
+        varchar recipient
+        varchar recipient_name
+        varchar subject
+        text body
+        text html
+        notification_status status
+        integer attempts
+        varchar last_error
+        varchar provider_message_id
+        timestamptz sent_at
+        timestamptz next_attempt_at
+        uuid resend_of
+        uuid id PK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    shipment_recipients {
+        uuid shipment_id PK
+        varchar reference_no
+        varchar name
+        varchar phone
+        varchar email
+        varchar destination_city
+        varchar origin_warehouse_code
+        timestamptz synced_at
+    }
+    suppressions {
+        notification_channel channel
+        varchar address
+        varchar reason
+        uuid created_by
+        uuid id PK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+```
+
+### `courier_contacts`
+
+A courier's name and contact details, from `courier.*` profile events.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `courier_id` | uuid | no | primary key |
+| `code` | varchar(16) | no |  |
+| `full_name` | varchar(200) | no |  |
+| `phone` | varchar(32) | yes |  |
+| `email` | varchar(320) | yes |  |
+| `deleted` | boolean | no | default `false` |
+| `source_updated_at` | timestamptz | no |  |
+
+### `notifications`
+
+One message to one recipient on one channel — the delivery log.
+
+The id is derived from (event, template, channel), so an event delivered
+twice produces the same rows, not two emails. The rendered subject and
+body are stored, so the log shows exactly what was sent.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `event_id` | uuid | yes |  |
+| `event_type` | varchar(100) | yes |  |
+| `shipment_id` | uuid | yes |  |
+| `courier_id` | uuid | yes |  |
+| `template` | varchar(64) | no |  |
+| `channel` | notification_channel | no |  |
+| `recipient` | varchar(320) | no |  |
+| `recipient_name` | varchar(200) | yes |  |
+| `subject` | varchar(300) | yes |  |
+| `body` | text | no |  |
+| `html` | text | yes |  |
+| `status` | notification_status | no | default `pending` |
+| `attempts` | integer | no | default `0` |
+| `last_error` | varchar(1000) | yes |  |
+| `provider_message_id` | varchar(200) | yes |  |
+| `sent_at` | timestamptz | yes |  |
+| `next_attempt_at` | timestamptz | no | default `now()` |
+| `resend_of` | uuid | yes |  |
+| `created_at` | timestamptz | no | default `now()` |
+| `updated_at` | timestamptz | no | default `now()` |
+
+- **index** `ix_notifications_pending` `(next_attempt_at)` where `status = 'pending'`
+- **index** `ix_notifications_shipment` `(shipment_id, created_at)`
+- **index** `ix_notifications_recipient` `(recipient, created_at)`
+
+### `shipment_recipients`
+
+Who receives a shipment, from `shipment.created`. Later status events
+carry no contact details; this is where they are looked up.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `shipment_id` | uuid | no | primary key |
+| `reference_no` | varchar(32) | no |  |
+| `name` | varchar(200) | no |  |
+| `phone` | varchar(32) | yes |  |
+| `email` | varchar(320) | yes |  |
+| `destination_city` | varchar(100) | yes |  |
+| `origin_warehouse_code` | varchar(16) | yes |  |
+| `synced_at` | timestamptz | no | default `now()` |
+
+### `suppressions`
+
+An address that must not be messaged on a channel (opt-out, bounced,
+wrong number). Checked at send time, so it also stops queued messages.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | primary key |
+| `channel` | notification_channel | no |  |
+| `address` | varchar(320) | no |  |
+| `reason` | varchar(500) | yes |  |
+| `created_by` | uuid | yes |  |
+| `created_at` | timestamptz | no | default `now()` |
+| `updated_at` | timestamptz | no | default `now()` |
+
+- **unique** `(channel, address)`
 
 ---
 

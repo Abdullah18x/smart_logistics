@@ -13,6 +13,10 @@ class Settings(ServiceSettings):
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
     task_queue: str = "smartlogistics-dispatch"
+    temporal_metrics_port: int | None = Field(
+        default=None,
+        description="Where the worker exports the Temporal SDK's own metrics for Prometheus.",
+    )
 
     # --- Services it drives ----------------------------------------------------------
     identity_service_url: str = "http://localhost:8001"

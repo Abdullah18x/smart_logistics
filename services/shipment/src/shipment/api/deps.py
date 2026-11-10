@@ -8,10 +8,11 @@ from shipment.db import SessionDep
 from shipment.services.shipments import ShipmentService
 from sl_platform.auth import Auth, Principal, TokenVerifier
 from sl_platform.http import ServiceClient
+from sl_platform.revocation import TokenDenylist
 from sl_platform.roles import UserRole
 
 verifier = TokenVerifier.from_settings(settings)
-auth = Auth(verifier)
+auth = Auth(verifier, TokenDenylist.from_settings(settings))
 
 inventory_client = InventoryClient(
     ServiceClient(

@@ -17,13 +17,43 @@ from sl_platform.worker import retry_until_ready
 logger = logging.getLogger("orchestrator.temporal")
 
 
-async def connect(settings: Settings, stop: asyncio.Event | None = None) -> Client | None:
+def tracing_interceptors() -> list:
+    """Temporal's OpenTelemetry interceptor, so a workflow, and every activity it
+    runs, joins the trace of whatever started it (the Kafka event, an API call).
+    Empty when OpenTelemetry is not installed."""
+    try:
+        from temporalio.contrib.opentelemetry import TracingInterceptor
+    except ImportError:
+        return []
+    return [TracingInterceptor()]
+
+
+def metrics_runtime(port: int | None):
+    """A Temporal runtime that exports the SDK's own metrics (workflow and
+    activity outcomes, latencies, task-queue polling) for Prometheus. Only the
+    worker process sets a port; the API's client uses the default runtime."""
+    if not port:
+        return None
+    from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
+
+    return Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(f"0.0.0.0:{port}")))
+
+
+async def connect(
+    settings: Settings, stop: asyncio.Event | None = None, *, metrics_port: int | None = None
+) -> Client | None:
     """Connect, waiting with backoff while Temporal starts. None if stopped first."""
     holder: list[Client] = []
+    runtime = metrics_runtime(metrics_port)
 
     async def attempt() -> None:
         holder.append(
-            await Client.connect(settings.temporal_address, namespace=settings.temporal_namespace)
+            await Client.connect(
+                settings.temporal_address,
+                namespace=settings.temporal_namespace,
+                interceptors=tracing_interceptors(),
+                **({"runtime": runtime} if runtime else {}),
+            )
         )
 
     ok = await retry_until_ready(attempt, "temporal", stop or asyncio.Event())

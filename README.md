@@ -7,7 +7,8 @@ monolith lives on in git history (the `phase_1` branch) for reference.
 Each service owns an **isolated database instance**, verifies tokens on its own,
 and talks to the others only through **REST** (immediate questions), **Kafka
 events** (facts others react to) and **Temporal workflows** (multi-step processes
-that must finish or be undone: dispatch and delivery).
+that must finish or be undone: dispatch and delivery). Background jobs run on
+**Celery**; every hop is measured (Prometheus, Grafana) and traced (Jaeger).
 
 ## Architecture
 
@@ -25,8 +26,10 @@ flowchart TB
         cr[courier<br/>couriers · assignments]
         trk[tracking<br/>journeys · field updates]
         orc[orchestrator<br/>Temporal worker · no DB]
+        an[analytics<br/>facts · daily rollups · issues]
+        nt[notification<br/>delivery log · suppressions]
     end
-    gw --> id & wh & inv & shp & cr & trk & orc
+    gw --> id & wh & inv & shp & cr & trk & orc & an & nt
 
     id --- iddb[(identity-db)]
     wh --- whdb[(warehouse-db)]
@@ -35,6 +38,9 @@ flowchart TB
     cr --- crdb[(courier-db)]
     trk --- mongo[(MongoDB)]
     orc --- temporal[[Temporal]]
+    an --- andb[(analytics-db)]
+    nt --- ntdb[(notification-db)]
+    nt -- SMTP --> mail[[Mailpit]]
 
     shp -- "REST: reserve stock" --> inv
     id -- "REST: does warehouse exist?" --> wh
@@ -43,6 +49,8 @@ flowchart TB
     kafka{{Kafka · *.events}}
     id & wh & inv & shp & cr & trk -- outbox relay --> kafka
     kafka -- "shipment.dispatch_requested<br/>tracking.milestone_recorded" --> orc
+    kafka -- "shipment.* · courier.* · dlq.*" --> an
+    kafka -- "shipment.* · courier.*" --> nt
 ```
 
 | Service | Owns | Publishes | Consumes | Calls |
@@ -54,9 +62,11 @@ flowchart TB
 | **courier** | couriers, assignments, warehouse replica | `courier.*` incl. `assigned/unassigned` | `warehouse.*`, `shipment.status_changed` (end assignments) | — |
 | **tracking** | journeys and field updates (MongoDB) | `tracking.milestone_recorded` | `courier.assigned`, `shipment.status_changed` (returns) | — |
 | **orchestrator** | workflow state (in Temporal) | — | `shipment.dispatch_requested`, `tracking.milestone_recorded` | shipment, inventory, courier, tracking |
+| **analytics** | milestone facts, daily rollups, courier load, pipeline issues | — | `shipment.*`, `courier.*`, every `dlq.*` | — |
+| **notification** | delivery log, suppressions, recipient and courier contacts | — | `shipment.*`, `courier.*` | SMTP (Mailpit), mock SMS / push |
 
-Notification and analytics services arrive in Week 3; the AI assistant and indexer
-in Weeks 4–5. The full plan is in the *Microservices Migration Plan* doc.
+The AI assistant and indexer come in Weeks 4–5. The full plan is in the
+*Microservices Migration Plan* doc.
 
 ## How the hard parts work
 
@@ -100,6 +110,21 @@ optimistic locking; stock rows are locked in id order; couriers are picked with
 `FOR UPDATE SKIP LOCKED` and a partial unique index allows one active assignment per
 shipment.
 
+**Failed events.** Every event type has a JSON Schema contract, checked when it is
+written and registered in the Schema Registry when published. A consumer that cannot
+handle an event after 5 tries — or gets one that breaks its contract — moves it to
+`dlq.<consumer>`; `./dev.sh dlq list` shows them and `./dev.sh dlq replay <consumer>`
+sends them back to that consumer only.
+
+**Notifications and analytics.** Both are consumers. Notification writes one row per
+message (a redelivered event adds nothing) and a Celery task sends it — email to
+Mailpit, SMS and push to logged mocks — retrying with backoff. Analytics stores each
+milestone as a fact and bumps daily counters in the same transaction; a nightly
+Celery job rebuilds the counters from the facts.
+
+**Sign-out means now.** Sign-out, suspension and role changes write a Redis denylist
+that every service checks, so an access token stops working on the next request.
+
 **No foreign keys across services.** References are plain ids. Display fields are
 snapshotted; cascades became events.
 
@@ -109,8 +134,8 @@ One developer CLI does everything, on every OS.
 
 **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/)
 (it installs Python for you) and Docker Desktop, or Docker Engine with the Compose
-plugin. Free ports: 5441–5445, 7233, 8233, 27017, 29092, 16686, and 8001–8007
-(option A) or 8000/8080 (option B).
+plugin. Free ports: 5441–5447, 7233, 8233, 27017, 29092, 16686, 5672/15672, 6379,
+8081, 9090, 3000, 1025/8025, and 8001–8009 (option A) or 8000/8080 (option B).
 
 | macOS / Linux | Windows PowerShell | Windows cmd |
 |---|---|---|
@@ -120,10 +145,11 @@ plugin. Free ports: 5441–5445, 7233, 8233, 27017, 29092, 16686, and 8001–800
 
 ```bash
 ./dev.sh setup        # install the workspace + generate Identity's signing key
-./dev.sh infra up     # 5 Postgres (5441-5445), Kafka, Temporal (7233, UI 8233), MongoDB, Jaeger, gateway (8000)
+./dev.sh infra up     # 7 Postgres (5441-5447), Kafka, Schema Registry, Temporal, MongoDB, RabbitMQ,
+                      # Redis, Mailpit, Prometheus, Grafana, Jaeger, gateway (8000)
 ./dev.sh migrate      # every SQL service; or: ./dev.sh migrate shipment courier
 ./dev.sh seed         # warehouses, users, SKUs and stock, couriers — in the right order
-./dev.sh start        # 7 APIs (8001-8007) + workers in one terminal; Ctrl+C stops all
+./dev.sh start        # 9 APIs (8001-8009) + workers + Celery workers; Ctrl+C stops all
 ```
 
 The gateway runs on :8000 and forwards to the services on your machine, so
@@ -169,13 +195,18 @@ per service. Authorize once and the token is kept as you switch services.
 |---|---|
 | http://localhost:8000/docs | Swagger UI for every service, behind the gateway |
 | http://localhost:8000 | Gateway: every API under `/api/v1/...` |
-| http://localhost:800{1..7}/docs | One service's own Swagger UI, bypassing the gateway |
-| `docs/curl/index.html` | Offline reference: every endpoint (82) with a copy-ready curl command |
+| http://localhost:800{1..9}/docs | One service's own Swagger UI, bypassing the gateway |
+| `docs/curl/index.html` | Offline reference: every endpoint (95) with a copy-ready curl command |
 | `docs/curl/openapi.json` | All specs merged into one, for Postman, Insomnia or Bruno |
 | `docs/curl/*.postman_*.json` | Postman collection (a folder per service) and environment |
 | http://localhost:8233 | Temporal UI: every dispatch and delivery workflow, step by step |
 | http://localhost:8080 | Traefik dashboard |
-| http://localhost:16686 | Jaeger traces |
+| http://localhost:16686 | Jaeger traces — one trace from the HTTP call through Kafka, Celery and Temporal |
+| http://localhost:3000 | Grafana: API health, event pipeline, business KPIs (anonymous viewer; admin/admin) |
+| http://localhost:9090/alerts | Prometheus alert rules and their state |
+| http://localhost:8025 | Mailpit: every email the platform sent |
+| http://localhost:15672 | RabbitMQ (guest/guest): Celery queues |
+| http://localhost:8081/subjects | Schema Registry: the registered event contracts |
 | `docker compose --profile tools up -d kafka-ui` → :8090 | Kafka UI |
 
 Seeded accounts (password `SmartLogistics!2026`): `admin@`, `support.lead@`,
@@ -187,6 +218,7 @@ Seeded accounts (password `SmartLogistics!2026`): `admin@`, `support.lead@`,
 ```bash
 ./dev.sh test          # platform unit tests, each service's suite, cross-service e2e
 ./dev.sh test courier  # one service
+./dev.sh test --cov    # everything, with combined coverage and the gate (as CI runs it)
 ./dev.sh lint          # ruff + import-linter (services may never import each other)
 ./dev.sh check         # lint + `alembic check` per SQL service
 ```
@@ -198,12 +230,17 @@ Temporal CLI for orchestrator and e2e — downloaded by the SDK on first run, or
 
 `tests/e2e` loads every service into one process, each on its own store, joined by an
 in-memory event bus in place of Kafka, with a real Temporal dev server: it runs
-dispatch and delivery end to end, including the no-courier failure and retry.
+dispatch and delivery end to end, including the no-courier failure and retry, and
+checks the customer was notified and the metrics moved.
+
+CI (`.github/workflows/ci.yml`) runs lint, migrations and `alembic check`, then
+`./dev.sh test --cov` against PostgreSQL and MongoDB service containers; the build fails
+below the coverage floor in `pyproject.toml`.
 
 ## Command reference
 
 Swap `./dev.sh` for `.\dev.ps1` (PowerShell) or `dev` (cmd). `[svc ...]` means any
-of `identity warehouse inventory shipment courier orchestrator tracking`.
+of `identity warehouse inventory shipment courier orchestrator tracking analytics notification`.
 
 | Command | What it does | make alias |
 |---|---|---|
@@ -214,11 +251,12 @@ of `identity warehouse inventory shipment courier orchestrator tracking`.
 | `migrate --down [svc ...]` | roll every migration back | — |
 | `seed` | seed warehouse → identity → inventory → courier | `make seed` |
 | `reset` | migrate down, migrate up, seed | `make reset` |
-| `start [svc ...]` | APIs on 8001–8007 + workers; `--reload`, `--no-workers` | `make start s=shipment` |
+| `start [svc ...]` | APIs on 8001–8009 + workers + Celery workers (with beat); `--reload`, `--no-workers` | `make start s=shipment` |
 | `status` | `/health` of every service | `make status` |
 | `docs` | regenerate `docs/curl` and `docs/database.md` from the code | `make docs` |
 | `docker up` / `down [-v]` / `ps` / `logs [svc]` / `migrate` / `seed` | the whole stack in Docker | `make up` … |
-| `test [svc ...]` | platform tests, service suites, e2e (only when no service is named) | `make test s=shipment` |
+| `test [svc ...] [--cov]` | platform tests, service suites, e2e (only when no service is named); `--cov` measures and gates | `make test s=shipment` |
+| `dlq list [consumer]` / `dlq replay <consumer> --all \| <event-id>…` | inspect / replay dead letters | — |
 | `lint` / `check` | ruff + import-linter / plus `alembic check` | `make lint` / `make check` |
 
 ## Configuration
@@ -229,7 +267,7 @@ You normally set none of them: the defaults point at the Compose ports, and
 
 | Variable | Used by | Default / meaning |
 |---|---|---|
-| `DATABASE_URL` | SQL services | its own database on `localhost:5441`–`5445` |
+| `DATABASE_URL` | SQL services | its own database on `localhost:5441`–`5447` |
 | `KAFKA_BOOTSTRAP_SERVERS` | every service | `localhost:29092` (containers use `kafka:9092`) |
 | `JWT_PRIVATE_KEY_FILE` | identity | `infra/keys/jwt-private.pem` (a Docker secret in Compose) |
 | `JWKS_URL` | all but identity | `http://localhost:8001/.well-known/jwks.json` |
@@ -240,7 +278,12 @@ You normally set none of them: the defaults point at the Compose ports, and
 | `COURIER_WAIT_ATTEMPTS` / `COURIER_WAIT_SECONDS` | orchestrator | look for a courier 5 times, 60 s apart, before failing the dispatch |
 | `PICKUP_TIMEOUT_SECONDS` / `MAX_DELIVERY_ATTEMPTS` | orchestrator | reassign after this long without pickup / return after this many failures |
 | `MONGO_URL` / `MONGO_DATABASE` | tracking | `mongodb://localhost:27017` / `tracking` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | every service | unset = no tracing export |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | every service | unset = no tracing export (`./dev.sh start` sets Jaeger; `SL_TRACING=off`) |
+| `SCHEMA_REGISTRY_URL` | every service | unset = contracts checked locally only (`SL_SCHEMA_REGISTRY=off`) |
+| `REDIS_URL` / `DENYLIST_FAIL_CLOSED` | every service | unset = no denylist or cache (`SL_REDIS=off`) / refuse tokens while Redis is down |
+| `CELERY_BROKER_URL` | services with jobs | `amqp://guest:guest@localhost:5672//` |
+| `METRICS_PORT` | workers, Celery workers | where `/metrics` is served (APIs use their own port) |
+| `SMTP_HOST` / `SMTP_PORT` / `OPS_EMAIL` | notification | Mailpit `localhost:1025` / the operations mailbox |
 | `RUN_MIGRATIONS` / `RUN_SEED` | container entrypoint | migrate / seed before starting |
 | `SL_PG_HOST` | dev CLI and tests | e.g. `localhost:5432` to put every database on one server |
 | `TEMPORAL_CLI_PATH` | tests | a local `temporal` binary instead of the SDK download |
@@ -265,16 +308,23 @@ You normally set none of them: the defaults point at the Compose ports, and
 - **Tracking returns 503** — MongoDB isn't running: `./dev.sh infra up`.
 - **`localhost:8000` returns `502`** — the service behind that path isn't running.
 - **Workers keep reconnecting** — Kafka isn't running: `./dev.sh infra up`.
+- **No emails in Mailpit** — the notification Celery worker isn't running (RabbitMQ down?);
+  messages wait as `pending` and the sweep sends them once it is back.
+- **An event "disappeared"** — check `./dev.sh dlq list`; fix the cause and replay it.
+- **Grafana panels are empty** — Prometheus scrapes the processes `./dev.sh start` runs;
+  check http://localhost:9090/targets.
 - **Want a clean slate** — `./dev.sh reset` (local) or `./dev.sh docker down -v`.
 
 ## Repository layout
 
 ```
-libs/sl-platform/      shared plumbing only: auth, service tokens, db, idempotency, outbox,
-                       consumer, service client, app factory, worker runner, test helpers
+libs/sl-platform/      shared plumbing only: auth, token denylist, cache, db, idempotency,
+                       outbox, consumer, contracts, schema registry, dead letters, metrics,
+                       telemetry, Celery factory, service client, app factory, worker runner
 services/<name>/
   src/<name>/          config, db, models, schemas, repository, services/, api/,
-                       events.py (publish + consume), main.py (HTTP), worker.py, seed.py
+                       events.py (publish + consume), contracts.py, main.py (HTTP),
+                       worker.py, tasks.py (Celery, where there are jobs), seed.py
   migrations/          the service's own Alembic chain (SQL services)
   tests/
 services/orchestrator/src/orchestrator/
@@ -282,8 +332,11 @@ services/orchestrator/src/orchestrator/
   activities.py        every call to another service
   trigger.py           Kafka → start workflows / signal deliveries
 infra/gateway/ · infra/docker/ · infra/temporal/   gateway routes, Dockerfile, Temporal config
+infra/prometheus/ · infra/grafana/                  scrape configs, alert rules, dashboards
 scripts/               dev CLI, API and database doc generators
-docker-compose.yml     databases, Kafka, Temporal, MongoDB, gateway, Swagger UI, Jaeger, APIs + workers
+docker-compose.yml     databases, Kafka, Schema Registry, Temporal, MongoDB, RabbitMQ, Redis, Mailpit,
+                       Prometheus, Grafana, Jaeger, gateway, Swagger UI, APIs, workers, Celery
+.github/workflows/     CI: lint, migrations, tests, coverage gate
 tests/e2e/             cross-service flows, real workflows
 docs/                  architecture, PRD, database reference, ADRs, build logs
 ```
@@ -298,9 +351,10 @@ where to look for what.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Services, communication, data, consistency, security, workflows; §1.1 maps every requirement to its status |
 | [docs/PRD.md](docs/PRD.md) | Use cases, requirements, milestones, traceability matrix |
 | [docs/database.md](docs/database.md) | Every service's tables and the tracking collections — generated by `./dev.sh docs` |
-| [docs/adr/](docs/adr/) | 18 architecture decision records |
-| [docs/phase_1.md](docs/phase_1.md) · [docs/phase_2.md](docs/phase_2.md) | Week 1 and Week 2 build logs |
+| [docs/adr/](docs/adr/) | 23 architecture decision records |
+| [docs/phase_1.md](docs/phase_1.md) · [phase_2.md](docs/phase_2.md) · [phase_3.md](docs/phase_3.md) | Week 1, 2 and 3 build logs |
 | [docs/manual-test-week2.md](docs/manual-test-week2.md) | Run dispatch and delivery by hand: three scenarios, what to watch in the Temporal UI, what the logs look like |
+| [docs/manual-test-week3.md](docs/manual-test-week3.md) | Week 3 by hand: notifications in Mailpit, metrics, dashboards, one trace, dead letters and replay, instant sign-out |
 | [docs/curl/](docs/curl/) | Generated API collection (see [API docs](#api-docs)) |
 | [docs/projectDocs/](docs/projectDocs/) | The assignment briefs, unmodified |
 
@@ -309,6 +363,7 @@ where to look for what.
 Python 3.13 · FastAPI · SQLAlchemy 2 (async) · PostgreSQL 16 (one per service) ·
 Alembic · Kafka (KRaft) via aiokafka · Temporal · MongoDB 7 (PyMongo async) ·
 PyJWT (RS256/JWKS) · Argon2 · httpx · ReportLab (labels) · Traefik ·
-OpenTelemetry → Jaeger · uv workspace · Ruff · import-linter · pytest · Docker Compose.
-Coming next: Celery + RabbitMQ, Schema Registry, Redis, Prometheus + Grafana,
-LangGraph + Qdrant.
+Celery + RabbitMQ · Confluent Schema Registry (JSON Schema) · Redis · Jinja + aiosmtplib
+(Mailpit) · Prometheus + Grafana · OpenTelemetry → Jaeger · uv workspace · Ruff ·
+import-linter · pytest + coverage · GitHub Actions · Docker Compose.
+Coming next: LangGraph + Qdrant.

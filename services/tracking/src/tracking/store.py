@@ -19,6 +19,8 @@ from __future__ import annotations
 from pymongo import ASCENDING, DESCENDING, AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
+from sl_platform.db import utcnow
+from sl_platform.metrics import OUTBOX_OLDEST_AGE, OUTBOX_PENDING
 from tracking.config import Settings
 
 
@@ -45,6 +47,15 @@ class TrackingStore:
 
     async def ping(self) -> None:
         await self.db.command("ping")
+
+    async def refresh_outbox_metrics(self) -> None:
+        """The outbox backlog for /metrics: events recorded but not yet published."""
+        pending = await self.events.count_documents({"published": False})
+        oldest = await self.events.find_one(
+            {"published": False}, {"received_at": 1}, sort=[("received_at", 1)]
+        )
+        OUTBOX_PENDING.set(pending)
+        OUTBOX_OLDEST_AGE.set((utcnow() - oldest["received_at"]).total_seconds() if oldest else 0)
 
     async def close(self) -> None:
         await self.client.close()

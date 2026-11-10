@@ -175,7 +175,8 @@ class ReservationService:
         return len(holds)
 
     async def release_expired(self, warehouse_ids: Sequence[uuid.UUID] | None = None) -> int:
-        """Sweep unconfirmed holds past expiry (scheduled on Celery beat in Week 3)."""
+        """Release unconfirmed holds past expiry. Runs on Celery beat (``inventory.tasks``)
+        and on demand through ``POST /api/v1/inventory/release-expired``."""
         statement = select(InventoryReservation.inventory_item_id).where(
             InventoryReservation.status == ReservationStatus.HELD,
             InventoryReservation.confirmed_at.is_(None),

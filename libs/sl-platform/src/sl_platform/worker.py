@@ -17,8 +17,12 @@ from sqlalchemy import text
 from sl_platform.config import ServiceSettings
 from sl_platform.consumer import EventProcessor, KafkaConsumerRunner
 from sl_platform.db import Database
+from sl_platform.dlq import DeadLetters
 from sl_platform.logging_setup import configure_logging
+from sl_platform.metrics import serve_metrics
 from sl_platform.outbox import KafkaPublisher, OutboxRelay
+from sl_platform.schema_registry import SchemaRegistry
+from sl_platform.telemetry import instrument_worker
 
 logger = logging.getLogger("sl_platform.worker")
 
@@ -105,12 +109,31 @@ async def wait_for_schema(
     return False
 
 
+def registry_for(settings: ServiceSettings) -> SchemaRegistry | None:
+    """The Schema Registry client, when one is configured (it is optional, so
+    tests and a minimal local setup run without it)."""
+    if not settings.schema_registry_url:
+        logger.info("no SCHEMA_REGISTRY_URL: contracts are checked locally only")
+        return None
+    return SchemaRegistry(settings.schema_registry_url)
+
+
 async def run_worker(
     settings: ServiceSettings,
     database: Database,
     processors: Sequence[EventProcessor] = (),
+    extra: Sequence[Callable[[asyncio.Event], Awaitable[None]]] = (),
 ) -> None:
+    """Run the outbox relay and one Kafka consumer per processor until SIGINT/SIGTERM.
+
+    ``extra`` are further long-running loops that take the stop event (e.g.
+    Analytics' dead-letter watcher); they start once Kafka is reachable.
+    """
     configure_logging(f"{settings.service_name}-worker", settings.log_level, settings.log_json)
+    instrument_worker(
+        f"{settings.service_name}-worker", settings.otel_exporter_otlp_endpoint, database.engine
+    )
+    serve_metrics(settings.metrics_port)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -123,12 +146,23 @@ async def run_worker(
     if not await retry_until_ready(publisher.start, "outbox relay", stop):
         await database.dispose()
         return
-    relay = OutboxRelay(database.sessionmaker, publisher)
+    registry = registry_for(settings)
+    dead_letters = DeadLetters(publisher)
+    relay = OutboxRelay(database.sessionmaker, publisher, registry=registry)
     tasks = [asyncio.create_task(relay.run_forever(stop), name="outbox-relay")]
     for processor in processors:
-        runner = KafkaConsumerRunner(processor, bootstrap_servers=settings.kafka_bootstrap_servers)
+        runner = KafkaConsumerRunner(
+            processor,
+            bootstrap_servers=settings.kafka_bootstrap_servers,
+            registry=registry,
+            dead_letters=dead_letters,
+        )
         tasks.append(asyncio.create_task(runner.run(stop), name=f"consumer-{processor.name}"))
-    logger.info("worker started: relay + %d consumer(s)", len(processors))
+    for loop_fn in extra:
+        tasks.append(asyncio.create_task(loop_fn(stop), name=getattr(loop_fn, "__name__", "extra")))
+    logger.info(
+        "worker started: relay + %d consumer(s) + %d extra loop(s)", len(processors), len(extra)
+    )
     try:
         await stop.wait()
     finally:
@@ -136,4 +170,6 @@ async def run_worker(
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         await publisher.stop()
+        if registry is not None:
+            await registry.aclose()
         await database.dispose()

@@ -8,10 +8,11 @@ from inventory.db import SessionDep
 from inventory.services.reservations import ReservationService
 from inventory.services.stock import CatalogService, StockService
 from sl_platform.auth import Auth, Principal, TokenVerifier
+from sl_platform.revocation import TokenDenylist
 from sl_platform.roles import UserRole
 
 verifier = TokenVerifier.from_settings(settings)
-auth = Auth(verifier)
+auth = Auth(verifier, TokenDenylist.from_settings(settings))
 
 
 async def get_reservations(session: SessionDep) -> ReservationService:

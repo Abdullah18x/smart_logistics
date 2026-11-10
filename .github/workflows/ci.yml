@@ -1,0 +1,98 @@
+# Lint, migration drift, every test suite (unit, service, cross-service e2e with a
+# real Temporal dev server) and the coverage gate, on every push and pull request.
+#
+# One PostgreSQL server holds every service's database (SL_PG_HOST), as
+# `SL_PG_HOST=localhost:5432 ./dev.sh test` does locally. MongoDB backs Tracking;
+# the Temporal SDK downloads its dev-server CLI on first use.
+name: CI
+
+on:
+  push:
+    branches: [main, "phase*"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_FROZEN: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  lint:
+    name: Lint and boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - run: uv sync --all-packages
+      - run: ./dev.sh lint
+
+  test:
+    name: Tests and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+      mongo:
+        image: mongo:7.0
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1})'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      SL_PG_HOST: localhost:5432
+      MONGO_URL: mongodb://localhost:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - run: uv sync --all-packages
+
+      - name: One role and database per service
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for s in identity warehouse inventory shipment courier analytics notification; do
+            psql -h localhost -U postgres -v ON_ERROR_STOP=1 \
+              -c "CREATE ROLE $s LOGIN CREATEDB PASSWORD '$s'" \
+              -c "CREATE DATABASE $s OWNER $s"
+          done
+
+      - name: Migrations apply and match the models
+        run: |
+          ./dev.sh migrate
+          ./dev.sh check
+
+      - name: Test suites with the coverage gate
+        run: ./dev.sh test --cov
+
+      - name: Coverage report
+        if: always()
+        run: |
+          uv run --no-sync coverage xml --rcfile=pyproject.toml -o coverage.xml || true
+          uv run --no-sync coverage report --rcfile=pyproject.toml --format=markdown \
+            >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore

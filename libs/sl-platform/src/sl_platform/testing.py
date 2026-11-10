@@ -57,6 +57,7 @@ def mint_token(
         "courier_id": str(courier_id) if courier_id else None,
         "jti": str(uuid.uuid4()),
         "iat": now,
+        "iat_ms": int(now.timestamp() * 1000),
         "exp": now + ttl,
         "iss": issuer,
         "aud": audience,

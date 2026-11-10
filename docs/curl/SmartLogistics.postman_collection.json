@@ -3173,6 +3173,559 @@
           ]
         }
       ]
+    },
+    {
+      "name": "analytics service",
+      "item": [
+        {
+          "name": "Analytics",
+          "item": [
+            {
+              "name": "All nine metrics",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/analytics/summary?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analytics",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "First day (UTC), default 29 days ago."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Last day (UTC), default today."
+                    },
+                    {
+                      "key": "warehouse_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only this warehouse."
+                    }
+                  ]
+                },
+                "description": "Shipments created, dispatched, delivered, failed deliveries, average delivery\ntime, courier utilisation, warehouse throughput, return rate and failed events —\nfor a period of up to a year. Counts come from daily rollups that move as events\narrive; utilisation is the courier fleet's load right now."
+              }
+            },
+            {
+              "name": "One metric per day",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/analytics/timeseries?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analytics",
+                    "timeseries"
+                  ],
+                  "query": [
+                    {
+                      "key": "metric",
+                      "value": "",
+                      "disabled": true,
+                      "description": "e.g. dispatched, delivered, returned."
+                    },
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "First day (UTC), default 29 days ago."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Last day (UTC), default today."
+                    },
+                    {
+                      "key": "warehouse_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only this warehouse."
+                    }
+                  ]
+                },
+                "description": "A count per day, zero-filled — e.g. shipments dispatched over time."
+              }
+            },
+            {
+              "name": "Throughput per warehouse",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/analytics/warehouses?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analytics",
+                    "warehouses"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "First day (UTC), default 29 days ago."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Last day (UTC), default today."
+                    }
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Per courier",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/analytics/couriers?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analytics",
+                    "couriers"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "First day (UTC), default 29 days ago."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Last day (UTC), default today."
+                    }
+                  ]
+                },
+                "description": "Assignments and outcomes in the period, plus each courier's load right now.\nWarehouse operators see the couriers based at their warehouses."
+              }
+            },
+            {
+              "name": "Failed events",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/analytics/issues?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analytics",
+                    "issues"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "First day (UTC), default 29 days ago."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Last day (UTC), default today."
+                    },
+                    {
+                      "key": "kind",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "source",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Consumer or warehouse code."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "offset",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Dead letters (with the consumer, reason and error) and failed dispatches,\nnewest first. Replay dead letters with ``./dev.sh dlq replay``; replayed ones\nshow ``status: replayed``."
+              }
+            },
+            {
+              "name": "Rebuild the rollups of a period",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/analytics/recompute",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analytics",
+                    "recompute"
+                  ],
+                  "query": []
+                },
+                "description": "Queue a rebuild of the daily counters from the milestone facts — the same job\nthat runs nightly for the last two days. Use it after replaying old events.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"from\": \"2026-01-01\",\n  \"to\": \"2026-01-01\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "notification service",
+      "item": [
+        {
+          "name": "Notifications",
+          "item": [
+            {
+              "name": "The delivery log",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/notifications?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications"
+                  ],
+                  "query": [
+                    {
+                      "key": "shipment_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "recipient",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "channel",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "template",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "offset",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "Who was told what about a shipment, on which channel, and whether it\narrived. Newest first."
+              }
+            },
+            {
+              "name": "The calling courier's",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/notifications/mine?",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "mine"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "offset",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "One notification, with the message as sent",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/notifications/{{notification_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "{{notification_id}}"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Send a notification again",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/notifications/{{notification_id}}/resend",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "{{notification_id}}",
+                    "resend"
+                  ],
+                  "query": []
+                },
+                "description": "Creates a new entry (``resend_of`` the original) and queues it — after a\ncustomer says they never got it, or after fixing a failed one's address."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Suppressions",
+          "item": [
+            {
+              "name": "Suppressed addresses",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/notifications/suppressions",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "suppressions"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            },
+            {
+              "name": "Stop messaging an address on a channel",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/notifications/suppressions",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "suppressions"
+                  ],
+                  "query": []
+                },
+                "description": "Opt-outs, wrong numbers, bounced addresses. Checked at send time, so it\nalso stops messages already queued.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"address\": \"+923001234567\",\n  \"channel\": \"sms\",\n  \"reason\": \"Asked to stop\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Allow an address again",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{access_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/notifications/suppressions/{{suppression_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notifications",
+                    "suppressions",
+                    "{{suppression_id}}"
+                  ],
+                  "query": []
+                },
+                "description": ""
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

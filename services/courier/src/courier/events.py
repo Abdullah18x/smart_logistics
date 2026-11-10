@@ -13,6 +13,9 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from courier import (
+    contracts as _contracts,  # noqa: F401  (registers this service's event contracts)
+)
 from courier.models import Courier, CourierAssignment
 from sl_platform.consumer import EventProcessor
 from sl_platform.events import EventEnvelope, Topics
@@ -38,6 +41,8 @@ def snapshot(courier: Courier) -> dict:
         "code": courier.code,
         "user_id": courier.user_id,
         "full_name": courier.full_name,
+        "phone": courier.phone,
+        "email": courier.email,
         "vehicle_type": courier.vehicle_type.value,
         "home_city": courier.home_city,
         "home_warehouse_id": courier.home_warehouse_id,

@@ -1,7 +1,7 @@
 # SmartLogistics — Product Requirements
 
 **Product:** SmartLogistics backend (Part A: logistics core) · **Client:** TransFleet
-**Status:** Weeks 1–2 delivered · **Last updated:** 2026-10-13
+**Status:** Weeks 1–3 delivered · **Last updated:** 2026-11-10
 
 This document covers what the brief asks of a PRD: key use cases, functional and
 non-functional requirements, the delivery timeline, and traceability from each requirement to
@@ -43,8 +43,8 @@ that keeps shipment, stock, courier and tracking data consistent and recoverable
 | UC-10 | Manage courier profiles and availability; reassign a shipment | Admin, courier, support | ✅ |
 | UC-11 | Record pickup, progress, delivery attempts and delivery from the field, over flaky networks | Courier | ✅ |
 | UC-12 | Return a parcel after failed attempts | Support, operator | ✅ automatic after the last attempt, or by support |
-| UC-13 | Be notified of milestones | Customer, ops | 🔴 Week 3 (public tracking lookup ✅) |
-| UC-14 | Monitor the nine operational metrics on dashboards | Admin | 🔴 Week 3 |
+| UC-13 | Be notified of milestones | Customer, courier, ops | ✅ email (SMTP), SMS and push (mock); public tracking lookup |
+| UC-14 | Monitor the nine operational metrics on dashboards | Admin, support, warehouse operator | ✅ `/api/v1/analytics/*`, Grafana business dashboard |
 | UC-15 | Ask the assistant about delays, throughput and courier performance | Admin, support | 🔴 Weeks 4–5 |
 
 ## 4. Functional requirements
@@ -78,10 +78,10 @@ that keeps shipment, stock, courier and tracking data consistent and recoverable
 | ID | Requirement | Status |
 |---|---|---|
 | FR-3.1 | Record pickup, status updates, delivery attempts and final confirmation | ✅ |
-| FR-3.2 | Accept high-volume field updates; retries and duplicates are harmless | ✅ functionally (MongoDB, device event ids, batches); load test Week 3 |
+| FR-3.2 | Accept high-volume field updates; retries and duplicates are harmless | ✅ functionally (MongoDB, device event ids, batches); load test deferred to Week 4 |
 | FR-3.3 | Recover from network failures; out-of-order updates handled | ✅ |
 | FR-3.4 | Real-time status visibility | ✅ journey, timeline and public lookup |
-| FR-3.5 | Notifications and analytics updated on milestones | 🔴 Week 3 |
+| FR-3.5 | Notifications and analytics updated on milestones | ✅ notification and analytics consume shipment and courier events |
 
 ### FR-4 Distributed and event-driven behaviour
 
@@ -89,14 +89,16 @@ that keeps shipment, stock, courier and tracking data consistent and recoverable
 |---|---|---|
 | FR-4.1 | Events for shipment creation, dispatch, courier assignment, tracking milestones, delivery, returns | ✅ |
 | FR-4.2 | Background processing independent of user-facing flows | ✅ worker process per service |
-| FR-4.3 | Traceable and recoverable; no double-processing | ✅ outbox + consumer dedupe; 🔴 dead-letter topic Week 3 |
-| FR-4.4 | Handle workload spikes | 🟡 workers scale independently; load tests Week 3 |
+| FR-4.3 | Traceable and recoverable; no double-processing | ✅ outbox + consumer dedupe; contracts in Schema Registry; dead-letter topics with replay; traces across Kafka |
+| FR-4.4 | Handle workload spikes | 🟡 workers and Celery scale independently; lag and backlog alerts; load tests Week 4 |
 
-### FR-5 Analytics — 🔴 Week 3
+### FR-5 Analytics — ✅ Week 3
 
 Total shipments · shipments dispatched over time · delivered · failed deliveries · average
 delivery time · courier utilisation · warehouse throughput · return rate · failed events /
-workflow issues.
+workflow issues. All nine at `GET /api/v1/analytics/summary` (plus `/timeseries`,
+`/warehouses`, `/couriers`, `/issues`) and on the Grafana business dashboard; definitions in
+[ARCHITECTURE §12.6](ARCHITECTURE.md#126-analytics).
 
 ### FR-6 Observability
 
@@ -104,7 +106,7 @@ workflow issues.
 |---|---|---|
 | FR-6.1 | Clear separation of responsibilities between services | ✅ |
 | FR-6.2 | Logging for all critical flows | ✅ structured logs with request ids |
-| FR-6.3 | Diagnose failures in dispatch, courier assignment, tracking, reservation, workers | 🟡 traces to Jaeger, Temporal UI, failure reasons on shipments; metrics and dashboards Week 3 |
+| FR-6.3 | Diagnose failures in dispatch, courier assignment, tracking, reservation, workers | ✅ traces through HTTP, Kafka, Celery and Temporal; Prometheus metrics and alerts; Grafana dashboards; Temporal UI; dead-letter list |
 
 ## 5. Non-functional requirements
 
@@ -140,8 +142,11 @@ Measurement and verification for each are in
 | FR-3.1–3.4 | tracking `/updates`, `/updates/batch`, `/public/{ref}`; `DeliveryWorkflow`; orchestrator trigger | `test_tracking.py`, `test_relay_and_events.py`, `test_delivery_workflow.py`, `test_trigger.py`, e2e | 2 ✅ |
 | FR-4.1 | `shipment.dispatch_requested`, `courier.assigned`, `tracking.milestone_recorded` and the rest | `test_dispatch.py`, `test_courier_events.py`, `test_relay_and_events.py`, e2e | 2 ✅ |
 | FR-4.2–4.3 | `sl_platform.outbox`, `sl_platform.consumer`, per-service workers | `libs/sl-platform/tests`, `services/*/tests/test_worker.py`, e2e cancellation test | 1 ✅ |
-| FR-5 | analytics service | — | 3 |
-| FR-6.2–6.3 | `sl_platform.logging_setup`, `sl_platform.telemetry`, Jaeger | manual (Jaeger UI) | 1 🟡 |
+| FR-3.5 | notification service: rules, delivery log, Celery send | `services/notification/tests`, e2e dispatch test | 3 ✅ |
+| FR-4.3 (DLQ) | `sl_platform.contracts`, `schema_registry`, `dlq`; `./dev.sh dlq` | `libs/sl-platform/tests/test_contracts_and_dlq.py` | 3 ✅ |
+| FR-5 | analytics service: milestones, rollups, recompute, `/analytics/*` | `services/analytics/tests`, e2e dispatch test | 3 ✅ |
+| FR-6.2–6.3 | `sl_platform.logging_setup`, `telemetry`, `metrics`; Prometheus rules; Grafana dashboards | `test_observability.py` (platform, orchestrator); manual (Jaeger, Grafana) | 3 ✅ |
+| Token revocation | `sl_platform.revocation`, identity `revocation.py` | `test_revocation_and_cache.py`, `services/identity/tests/test_revocation.py` | 3 ✅ |
 | Idempotent retries | `sl_platform.idempotency` | `libs/sl-platform/tests`, `test_shipments.py`, e2e | 1 ✅ |
 
 ## 7. Milestones
@@ -150,7 +155,7 @@ Measurement and verification for each are in
 |---|---|---|---|
 | 1 | Foundation and core services | Working APIs, database schemas, Docker setup, clean service structure | ✅ ([phase_1.md](phase_1.md)) |
 | 2 | Dispatch and delivery workflows | Stable dispatch workflow, courier orchestration, reliable tracking state machine | ✅ ([phase_2.md](phase_2.md)) |
-| 3 | Events and observability | Kafka hardening (Schema Registry, DLQ), Celery workers, notifications, analytics, dashboards, tracing | Planned |
+| 3 | Events and observability | Kafka hardening (Schema Registry, DLQ), Celery workers, notifications, analytics, dashboards, tracing | ✅ ([phase_3.md](phase_3.md)) |
 | 4 | Retrieval layer (Part B) | Indexed operational data, semantic retrieval | Planned |
 | 5 | AI logistics layer (Part B) | Assistant, optimisation tools, streaming | Planned |
 

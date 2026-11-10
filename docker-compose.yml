@@ -13,8 +13,16 @@
 #
 #   Gateway (Traefik)   http://localhost:8000      dashboard http://localhost:8080
 #   Jaeger (traces)     http://localhost:16686
+#   Prometheus          http://localhost:9090
+#   Grafana             http://localhost:3000      (admin / admin)
+#   Temporal UI         http://localhost:8233
+#   RabbitMQ UI         http://localhost:15672     (guest / guest)
+#   Mailpit inbox       http://localhost:8025
+#   Schema Registry     http://localhost:8081
 #   Kafka UI            http://localhost:8090      (profile: tools)
 #   Services direct     identity 8001 · warehouse 8002 · inventory 8003 · shipment 8004
+#                       courier 8005 · orchestrator 8006 · tracking 8007
+#                       analytics 8008 · notification 8009
 
 x-build: &build
   context: .
@@ -31,6 +39,9 @@ x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+  SCHEMA_REGISTRY_URL: http://schema-registry:8081
+  REDIS_URL: redis://redis:6379/0
   JWT_ISSUER: smartlogistics-identity
   JWT_AUDIENCE: smartlogistics
 
@@ -81,6 +92,20 @@ services:
     ports: ["${COURIER_DB_PORT:-5445}:5432"]
     volumes: [courier-db:/var/lib/postgresql/data]
     healthcheck: {<<: *db-health, test: ["CMD-SHELL", "pg_isready -U courier -d courier"]}
+
+  analytics-db:
+    <<: *db
+    environment: {POSTGRES_USER: analytics, POSTGRES_PASSWORD: analytics, POSTGRES_DB: analytics}
+    ports: ["${ANALYTICS_DB_PORT:-5446}:5432"]
+    volumes: [analytics-db:/var/lib/postgresql/data]
+    healthcheck: {<<: *db-health, test: ["CMD-SHELL", "pg_isready -U analytics -d analytics"]}
+
+  notification-db:
+    <<: *db
+    environment: {POSTGRES_USER: notification, POSTGRES_PASSWORD: notification, POSTGRES_DB: notification}
+    ports: ["${NOTIFICATION_DB_PORT:-5447}:5432"]
+    volumes: [notification-db:/var/lib/postgresql/data]
+    healthcheck: {<<: *db-health, test: ["CMD-SHELL", "pg_isready -U notification -d notification"]}
 
   # --- tracking store (MongoDB) ------------------------------------------------------
   mongo:
@@ -211,7 +236,9 @@ services:
          {"name": "shipment", "url": "/openapi/shipment.json"},
          {"name": "courier — profiles & assignments", "url": "/openapi/courier.json"},
          {"name": "tracking — journeys & field updates", "url": "/openapi/tracking.json"},
-         {"name": "orchestrator — dispatch workflows", "url": "/openapi/orchestrator.json"}]
+         {"name": "orchestrator — dispatch workflows", "url": "/openapi/orchestrator.json"},
+         {"name": "notification — delivery log & suppressions", "url": "/openapi/notification.json"},
+         {"name": "analytics — metrics", "url": "/openapi/analytics.json"}]
       URLS_PRIMARY_NAME: identity — auth & users
       PERSIST_AUTHORIZATION: "true"
       DISPLAY_REQUEST_DURATION: "true"
@@ -234,7 +261,101 @@ services:
     image: jaegertracing/all-in-one:1.62.0
     restart: unless-stopped
     environment: {COLLECTOR_OTLP_ENABLED: "true"}
-    ports: ["16686:16686"]
+    # 4318: OTLP over HTTP, published so services running on the host can export too.
+    ports: ["16686:16686", "4318:4318"]
+
+  # Metrics. Which targets it scrapes depends on where the services run:
+  # infra/prometheus/docker.yml (container names) or local.yml (host ports);
+  # `./dev.sh infra up` selects local.yml through PROMETHEUS_TARGETS.
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    mem_limit: 256m
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports: ["${PROMETHEUS_PORT:-9090}:9090"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - ./infra/prometheus/${PROMETHEUS_TARGETS:-docker}.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+
+  # Dashboards, provisioned from infra/grafana (no clicking): Prometheus and Jaeger
+  # data sources plus the dashboards in infra/grafana/dashboards. Anonymous viewing
+  # is on for local use; sign in as admin/admin to edit.
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    mem_limit: 256m
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+
+  # --- background work and caching -------------------------------------------------
+  # Celery's broker. Each service with background jobs has its own queue.
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    mem_limit: 384m
+    ports: ["${RABBITMQ_PORT:-5672}:5672", "${RABBITMQ_UI_PORT:-15672}:15672"]
+    volumes: [rabbitmq-data:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  # Token denylist (immediate revocation) and short-lived caches.
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # Event contracts: every event type is registered as a JSON Schema, BACKWARD
+  # compatible, and checked on produce and consume (ADR-015).
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    restart: unless-stopped
+    mem_limit: 512m
+    ports: ["${SCHEMA_REGISTRY_PORT:-8081}:8081"]
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: backward
+    depends_on: {kafka: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/subjects >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Notification email goes over real SMTP to this inbox: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.21.0
+    restart: unless-stopped
+    mem_limit: 128m
+    ports: ["${MAILPIT_SMTP_PORT:-1025}:1025", "${MAILPIT_UI_PORT:-8025}:8025"]
 
   # --- identity --------------------------------------------------------------------
   identity:
@@ -271,6 +392,7 @@ services:
     command: ["python", "-m", "identity.worker"]
     environment:
       <<: *common-env
+      METRICS_PORT: "9100"
       DATABASE_URL: postgresql+asyncpg://identity:identity@identity-db:5432/identity
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
     secrets: [jwt_private_key]
@@ -306,6 +428,7 @@ services:
     command: ["python", "-m", "warehouse.worker"]
     environment:
       <<: [*common-env, *verifier-env]
+      METRICS_PORT: "9100"
       DATABASE_URL: postgresql+asyncpg://warehouse:warehouse@warehouse-db:5432/warehouse
     healthcheck: {disable: true}
     depends_on: {warehouse: {condition: service_healthy}, kafka: {condition: service_healthy}}
@@ -339,9 +462,23 @@ services:
     command: ["python", "-m", "inventory.worker"]
     environment:
       <<: [*common-env, *verifier-env]
+      METRICS_PORT: "9100"
       DATABASE_URL: postgresql+asyncpg://inventory:inventory@inventory-db:5432/inventory
     healthcheck: {disable: true}
     depends_on: {inventory: {condition: service_healthy}, kafka: {condition: service_healthy}}
+
+  # Celery worker + beat: the expired-hold sweep (every 5 minutes).
+  inventory-celery:
+    image: smartlogistics/inventory:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["celery", "-A", "inventory.tasks:celery_app", "worker", "-B", "-Q", "inventory",
+              "--loglevel=INFO", "-s", "/tmp/celerybeat-schedule"]
+    environment:
+      <<: [*common-env, *verifier-env]
+      METRICS_PORT: "9100"
+      DATABASE_URL: postgresql+asyncpg://inventory:inventory@inventory-db:5432/inventory
+    healthcheck: {disable: true}
+    depends_on: {inventory: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
 
   # --- shipment --------------------------------------------------------------------
   shipment:
@@ -373,6 +510,7 @@ services:
     command: ["python", "-m", "shipment.worker"]
     environment:
       <<: [*common-env, *verifier-env]
+      METRICS_PORT: "9100"
       DATABASE_URL: postgresql+asyncpg://shipment:shipment@shipment-db:5432/shipment
     healthcheck: {disable: true}
     depends_on: {shipment: {condition: service_healthy}, kafka: {condition: service_healthy}}
@@ -406,9 +544,109 @@ services:
     command: ["python", "-m", "courier.worker"]
     environment:
       <<: [*common-env, *verifier-env]
+      METRICS_PORT: "9100"
       DATABASE_URL: postgresql+asyncpg://courier:courier@courier-db:5432/courier
     healthcheck: {disable: true}
     depends_on: {courier: {condition: service_healthy}, kafka: {condition: service_healthy}}
+
+  # --- notification (email via Mailpit, mock SMS/push; sends on Celery) -------------
+  notification:
+    build: {<<: *build, args: {SERVICE: notification}}
+    image: smartlogistics/notification:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment: &notification-env
+      <<: [*common-env, *verifier-env]
+      DATABASE_URL: postgresql+asyncpg://notification:notification@notification-db:5432/notification
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      PUBLIC_TRACKING_URL: http://localhost:8000/api/v1/tracking/public/{reference_no}
+      RUN_MIGRATIONS: "true"
+    ports: ["8009:8000"]
+    depends_on: {notification-db: {condition: service_healthy}}
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.notification.rule: PathPrefix(`/api/v1/notifications`)
+      traefik.http.routers.notification.entrypoints: web
+      traefik.http.services.notification.loadbalancer.server.port: "8000"
+      traefik.http.routers.notification-openapi.rule: Path(`/openapi/notification.json`)
+      traefik.http.routers.notification-openapi.entrypoints: web
+      traefik.http.routers.notification-openapi.service: notification
+      traefik.http.routers.notification-openapi.middlewares: notification-openapi
+      traefik.http.middlewares.notification-openapi.replacepath.path: /openapi.json
+
+  notification-worker:
+    image: smartlogistics/notification:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["python", "-m", "notification.worker"]
+    environment:
+      <<: *notification-env
+      METRICS_PORT: "9100"
+      RUN_MIGRATIONS: "false"
+    healthcheck: {disable: true}
+    depends_on:
+      notification: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  notification-celery:
+    image: smartlogistics/notification:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["celery", "-A", "notification.tasks:celery_app", "worker", "-B", "-Q", "notification",
+              "--loglevel=INFO", "-s", "/tmp/celerybeat-schedule"]
+    environment:
+      <<: *notification-env
+      METRICS_PORT: "9100"
+      RUN_MIGRATIONS: "false"
+    healthcheck: {disable: true}
+    depends_on:
+      notification: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      mailpit: {condition: service_started}
+
+  # --- analytics (facts + daily rollups from events; nightly rebuild on Celery) -------
+  analytics:
+    build: {<<: *build, args: {SERVICE: analytics}}
+    image: smartlogistics/analytics:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment: &analytics-env
+      <<: [*common-env, *verifier-env]
+      DATABASE_URL: postgresql+asyncpg://analytics:analytics@analytics-db:5432/analytics
+      RUN_MIGRATIONS: "true"
+    ports: ["8008:8000"]
+    depends_on: {analytics-db: {condition: service_healthy}}
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.analytics.rule: PathPrefix(`/api/v1/analytics`)
+      traefik.http.routers.analytics.entrypoints: web
+      traefik.http.services.analytics.loadbalancer.server.port: "8000"
+      traefik.http.routers.analytics-openapi.rule: Path(`/openapi/analytics.json`)
+      traefik.http.routers.analytics-openapi.entrypoints: web
+      traefik.http.routers.analytics-openapi.service: analytics
+      traefik.http.routers.analytics-openapi.middlewares: analytics-openapi
+      traefik.http.middlewares.analytics-openapi.replacepath.path: /openapi.json
+
+  analytics-worker:
+    image: smartlogistics/analytics:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["python", "-m", "analytics.worker"]
+    environment:
+      <<: *analytics-env
+      METRICS_PORT: "9100"
+      RUN_MIGRATIONS: "false"
+    healthcheck: {disable: true}
+    depends_on: {analytics: {condition: service_healthy}, kafka: {condition: service_healthy}}
+
+  analytics-celery:
+    image: smartlogistics/analytics:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    command: ["celery", "-A", "analytics.tasks:celery_app", "worker", "-B", "-Q", "analytics",
+              "--loglevel=INFO", "-s", "/tmp/celerybeat-schedule"]
+    environment:
+      <<: *analytics-env
+      METRICS_PORT: "9100"
+      RUN_MIGRATIONS: "false"
+    healthcheck: {disable: true}
+    depends_on: {analytics: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
 
   # --- orchestrator (Temporal workflows; no database of its own) --------------------
   orchestrator:
@@ -442,7 +680,10 @@ services:
     image: smartlogistics/orchestrator:${IMAGE_TAG:-local}
     restart: unless-stopped
     command: ["python", "-m", "orchestrator.worker"]
-    environment: *orchestrator-env
+    environment:
+      <<: *orchestrator-env
+      METRICS_PORT: "9100"
+      TEMPORAL_METRICS_PORT: "9300"
     healthcheck: {disable: true}
     depends_on:
       orchestrator: {condition: service_started}
@@ -476,6 +717,7 @@ services:
     command: ["python", "-m", "tracking.worker"]
     environment:
       <<: [*common-env, *verifier-env]
+      METRICS_PORT: "9100"
       MONGO_URL: mongodb://mongo:27017
     healthcheck: {disable: true}
     depends_on: {tracking: {condition: service_healthy}, kafka: {condition: service_healthy}}
@@ -490,6 +732,11 @@ volumes:
   inventory-db:
   shipment-db:
   courier-db:
+  analytics-db:
+  notification-db:
   temporal-db:
   mongo-data:
   kafka-data:
+  prometheus-data:
+  grafana-data:
+  rabbitmq-data:

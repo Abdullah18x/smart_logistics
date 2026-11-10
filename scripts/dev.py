@@ -10,7 +10,7 @@ virtualenv exists first:
 Local development (services on your machine, infrastructure in Docker):
 
     setup                     install the workspace and generate the signing key
-    infra up|down|status      start/stop the 5 databases, Kafka, Temporal (UI on
+    infra up|down|status      start/stop the 7 databases, Kafka, Temporal (UI on
                               :8233), MongoDB, Jaeger and the gateway
                               (http://localhost:8000, Swagger UI at /docs)
     migrate [svc ...]         apply migrations (all SQL services by default)
@@ -29,7 +29,11 @@ Everything in Docker:
 
 Quality:
 
-    test [svc ...]            platform, service suites and cross-service e2e
+    dlq list [consumer]       dead letters: events a consumer gave up on
+    dlq replay <consumer> --all | <event-id> ...
+                              send them back to that consumer only
+    test [svc ...] [--cov]    platform, service suites and cross-service e2e
+                              (--cov: combined coverage, gated on a full run)
     lint                      ruff, format check, service-boundary contracts
     check                     lint plus a migration drift check per service
 
@@ -70,6 +74,8 @@ SERVICES: dict[str, tuple[int, int | None]] = {
     "courier": (8005, 5445),
     "orchestrator": (8006, None),
     "tracking": (8007, None),
+    "analytics": (8008, 5446),
+    "notification": (8009, 5447),
 }
 #: Services with their own PostgreSQL database (and Alembic chain).
 DB_SERVICES = tuple(name for name, (_, db_port) in SERVICES.items() if db_port)
@@ -77,8 +83,16 @@ DB_SERVICES = tuple(name for name, (_, db_port) in SERVICES.items() if db_port)
 SEED_ORDER = ("warehouse", "identity", "inventory", "courier")
 #: Services with a background worker (outbox relay and/or consumers).
 WORKERS = tuple(SERVICES)
-#: The full Docker stack's application containers (APIs and workers).
-APP_CONTAINERS = (*SERVICES, *(f"{s}-worker" for s in WORKERS))
+#: Services with Celery background jobs: the ones that have a ``tasks`` module.
+CELERY_SERVICES = tuple(
+    name for name in SERVICES if (ROOT / "services" / name / "src" / name / "tasks.py").exists()
+)
+#: The full Docker stack's application containers (APIs, workers, Celery workers).
+APP_CONTAINERS = (
+    *SERVICES,
+    *(f"{s}-worker" for s in WORKERS),
+    *(f"{s}-celery" for s in CELERY_SERVICES),
+)
 INFRA = (
     *(f"{name}-db" for name in DB_SERVICES),
     "kafka",
@@ -87,6 +101,12 @@ INFRA = (
     "temporal",
     "temporal-ui",
     "mongo",
+    "rabbitmq",
+    "redis",
+    "schema-registry",
+    "mailpit",
+    "prometheus",
+    "grafana",
     "docs",
     "gateway-local",
 )
@@ -155,6 +175,29 @@ def service_env(service: str) -> dict[str, str]:
         "JWKS_URL": f"{api_url('identity')}/.well-known/jwks.json",
         "TEMPORAL_ADDRESS": os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"),
         "MONGO_URL": os.environ.get("MONGO_URL", "mongodb://localhost:27017"),
+        "CELERY_BROKER_URL": os.environ.get(
+            "CELERY_BROKER_URL", "amqp://guest:guest@localhost:5672//"
+        ),
+        # Token denylist (immediate sign-out/suspension) and caches; SL_REDIS=off
+        # runs without them (tokens are then checked on signature and expiry only).
+        "REDIS_URL": (
+            ""
+            if os.environ.get("SL_REDIS") == "off"
+            else os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        ),
+        # Event contracts are registered here; SL_SCHEMA_REGISTRY=off checks them
+        # locally only (no registry container needed).
+        "SCHEMA_REGISTRY_URL": (
+            ""
+            if os.environ.get("SL_SCHEMA_REGISTRY") == "off"
+            else os.environ.get("SCHEMA_REGISTRY_URL", "http://localhost:8081")
+        ),
+        # Traces go to the Jaeger container; set SL_TRACING=off to keep them local.
+        "OTEL_EXPORTER_OTLP_ENDPOINT": (
+            ""
+            if os.environ.get("SL_TRACING") == "off"
+            else os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+        ),
     }
     for other in SERVICES:
         env[f"{other.upper()}_SERVICE_URL"] = api_url(other)
@@ -167,6 +210,18 @@ def service_env(service: str) -> dict[str, str]:
     if service in DEV_SERVICE_CLIENTS:
         env["SERVICE_CLIENT_ID"] = service
         env["SERVICE_CLIENT_SECRET"] = DEV_SERVICE_CLIENTS[service]
+    return env
+
+
+def process_env(service: str, kind: str) -> dict[str, str]:
+    """Metrics ports for the processes without HTTP, so Prometheus can tell them
+    apart on one host: Kafka worker 91NN, Celery worker 92NN (NN from the API
+    port), and the Temporal SDK's own metrics on 9306. Matches
+    infra/prometheus/local.yml."""
+    nn = str(SERVICES[service][0])[-2:]
+    env = {"METRICS_PORT": f"{91 if kind == 'worker' else 92}{nn}"}
+    if service == "orchestrator" and kind == "worker":
+        env["TEMPORAL_METRICS_PORT"] = "9306"
     return env
 
 
@@ -216,7 +271,12 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
 def cmd_infra(args: argparse.Namespace) -> None:
     if args.action == "up":
-        say("starting databases, Kafka, Jaeger and the gateway (services run on this machine)")
+        say(
+            "starting databases, Kafka, Temporal, MongoDB, RabbitMQ, Redis, Schema Registry, "
+            "Mailpit, Prometheus, Grafana, Jaeger and the gateway (services run on this machine)"
+        )
+        # Prometheus scrapes the services on the host, not containers.
+        os.environ["PROMETHEUS_TARGETS"] = "local"
         # The full Docker stack's gateway, APIs and workers would collide with the
         # services you run here: same ports (8000-8007), and its workers would take
         # Kafka events meant for yours. With `restart: unless-stopped` they come back
@@ -383,11 +443,17 @@ def check_infra(services: list[str], workers: bool) -> None:
             + ("" if kafka_up else f" or Kafka (:{kafka_port})")
             + ".\n       Start the infrastructure first:  ./dev.sh infra up"
         )
-    for service, (name, port) in (
+    needs = [
         ("orchestrator", ("Temporal", 7233)),
         ("tracking", ("MongoDB", 27017)),
-    ):
+        *((s, ("RabbitMQ", 5672)) for s in CELERY_SERVICES if workers),
+    ]
+    warned: set[str] = set()
+    for service, (name, port) in needs:
+        if name in warned:
+            continue
         if service in services and not _port_open("localhost", port):
+            warned.add(name)
             print(
                 f"\033[33mwarning:\033[0m {name} (:{port}) isn't reachable — {service} will "
                 "wait for it (./dev.sh infra up)."
@@ -417,7 +483,9 @@ def cmd_start(args: argparse.Namespace) -> None:
         cmd_keys(args)
     processes: list[tuple[str, subprocess.Popen]] = []
 
-    def launch(name: str, cmd: list[str], service: str) -> None:
+    def launch(
+        name: str, cmd: list[str], service: str, extra_env: dict[str, str] | None = None
+    ) -> None:
         kwargs: dict = {}
         if IS_WINDOWS:
             # Own process group, so Ctrl+C can be forwarded to each child cleanly.
@@ -430,7 +498,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         proc = subprocess.Popen(
             cmd,
             cwd=ROOT / "services" / service,
-            env=service_env(service),
+            env={**service_env(service), **(extra_env or {})},
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -461,8 +529,28 @@ def cmd_start(args: argparse.Namespace) -> None:
         launch(service, api, service)
         if service == "identity":
             time.sleep(1.5)
-        if not args.no_workers and service in WORKERS:
-            launch(f"{service}-worker", [PYTHON, "-m", f"{service}.worker"], service)
+        if args.no_workers:
+            continue
+        if service in WORKERS:
+            launch(
+                f"{service}-worker",
+                [PYTHON, "-m", f"{service}.worker"],
+                service,
+                extra_env=process_env(service, "worker"),
+            )
+        if service in CELERY_SERVICES:
+            beat_file = ROOT / ".dev" / f"celerybeat-{service}"
+            beat_file.parent.mkdir(exist_ok=True)
+            launch(
+                f"{service}-celery",
+                [
+                    PYTHON, "-m", "celery", "-A", f"{service}.tasks", "worker",
+                    "--pool=solo", "-Q", service, "-B", "-s", str(beat_file),
+                    "--loglevel=INFO",
+                ],
+                service,
+                extra_env=process_env(service, "celery"),
+            )  # fmt: skip
 
     say(
         "running: "
@@ -551,19 +639,52 @@ def cmd_docs(_: argparse.Namespace) -> None:
 
 
 def cmd_test(args: argparse.Namespace) -> None:
+    """Run the suites. With --cov, every suite appends to one coverage file and the
+    combined report is checked against ``fail_under`` (pyproject.toml) — the CI gate."""
     services = pick(args.services)
-    if not args.services:
+    full_run = not args.services
+    cov_env: dict[str, str] = {}
+    if args.cov:
+        data = ROOT / ".coverage"
+        data.unlink(missing_ok=True)
+        cov_env["COVERAGE_FILE"] = str(data)
+
+    def pytest(*packages: str) -> list[str]:
+        cmd = [PYTHON, "-m", "pytest"]
+        if args.cov:
+            cmd += [*(f"--cov={p}" for p in packages), "--cov-append", "--cov-report="]
+            # The gate applies to the combined report below, not to each suite.
+            cmd += [f"--cov-config={ROOT / 'pyproject.toml'}", "--cov-fail-under=0"]
+        return cmd
+
+    if full_run:
         say("sl-platform unit tests")
-        run([PYTHON, "-m", "pytest", "tests"], cwd=ROOT / "libs" / "sl-platform")
+        run([*pytest("sl_platform"), "tests"], cwd=ROOT / "libs" / "sl-platform",
+            env={**os.environ, **cov_env})  # fmt: skip
     for service in services:
         say(f"{service} tests")
-        env = {**os.environ}
+        env = {**os.environ, **cov_env}
         if service in DB_SERVICES:
             env["DATABASE_URL"] = database_url(service)
-        run([PYTHON, "-m", "pytest"], cwd=ROOT / "services" / service, env=env)
-    if not args.services:
+        run(pytest(service), cwd=ROOT / "services" / service, env=env)
+    if full_run:
         say("cross-service e2e")
-        run([PYTHON, "-m", "pytest", "tests/e2e"])
+        run([*pytest("sl_platform", *SERVICES), "tests/e2e"], env={**os.environ, **cov_env})
+    if args.cov:
+        say("coverage" + (" (gate: fail_under in pyproject.toml)" if full_run else ""))
+        report = [PYTHON, "-m", "coverage", "report", f"--rcfile={ROOT / 'pyproject.toml'}"]
+        if not full_run:
+            report.append("--fail-under=0")  # a partial run cannot meet the overall gate
+        run(report, env={**os.environ, **cov_env})
+
+
+def cmd_dlq(args: argparse.Namespace) -> None:
+    """Dead letters: list them, or replay them to the consumer that failed."""
+    env = {
+        **os.environ,
+        "KAFKA_BOOTSTRAP_SERVERS": os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092"),
+    }
+    run([PYTHON, "-m", "sl_platform.dlq", *args.dlq_args], env=env)
 
 
 def cmd_lint(_: argparse.Namespace) -> None:
@@ -635,11 +756,24 @@ def main() -> None:
 
     test = sub.add_parser("test", help="run the test suites")
     test.add_argument("services", nargs="*")
+    test.add_argument(
+        "--cov", action="store_true", help="measure coverage and enforce the gate (full run)"
+    )
     test.set_defaults(func=cmd_test)
 
+    dlq = sub.add_parser(
+        "dlq",
+        help="dead letters: list [consumer] | replay <consumer> (--all | <event-id> ...)",
+        add_help=False,
+    )
+    dlq.add_argument("dlq_args", nargs=argparse.REMAINDER)
+    dlq.set_defaults(func=cmd_dlq)
     sub.add_parser("lint", help="ruff and service-boundary contracts").set_defaults(func=cmd_lint)
     sub.add_parser("check", help="lint plus migration drift").set_defaults(func=cmd_check)
 
+    if sys.argv[1:2] == ["dlq"]:  # passed straight through, flags and all
+        cmd_dlq(argparse.Namespace(dlq_args=sys.argv[2:]))
+        return
     args = parser.parse_args()
     args.func(args)
 

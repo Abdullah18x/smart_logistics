@@ -39,6 +39,18 @@ SERVICES = {
         5445,
         "Courier profiles, shipment assignments with their history, a warehouse replica.",
     ),
+    "analytics": (
+        "analytics-db",
+        5446,
+        "Milestone facts, latest shipment state, daily counters per warehouse and courier, "
+        "a courier replica, and pipeline issues (dead letters, failed dispatches).",
+    ),
+    "notification": (
+        "notification-db",
+        5447,
+        "Every message sent (the delivery log), suppressed addresses, recipient and "
+        "courier contact replicas.",
+    ),
 }
 
 # Runs inside each service's interpreter and prints its tables as JSON.

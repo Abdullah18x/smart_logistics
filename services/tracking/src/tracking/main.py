@@ -19,4 +19,5 @@ app = create_service_app(
     on_startup=[verifier.try_warm_up, store.ensure_indexes],
     on_shutdown=[store.close],
     readiness_checks={"mongo": store.ping},
+    metrics_refreshers=[store.refresh_outbox_metrics],
 )

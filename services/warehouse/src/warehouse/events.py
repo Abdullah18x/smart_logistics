@@ -11,6 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sl_platform.events import Topics
 from sl_platform.outbox import add_event
+from warehouse import (
+    contracts as _contracts,  # noqa: F401  (registers this service's event contracts)
+)
 from warehouse.models import Warehouse
 
 PRODUCER = "warehouse"

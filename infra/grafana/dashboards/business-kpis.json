@@ -1,0 +1,592 @@
+{
+  "uid": "sl-business-kpis",
+  "title": "Business KPIs",
+  "description": "The nine analytics metrics for the selected period, read from Analytics' daily rollups (UTC days). Same numbers as GET /api/v1/analytics/summary.",
+  "tags": [
+    "smartlogistics"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Period totals",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "id": 1
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Shipments created",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND metric = 'created' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Dispatched",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND metric = 'dispatched' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Delivered",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND metric = 'delivered' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Failed deliveries",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND metric = 'delivery_failed' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Returns",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND metric = 'returned' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Dispatch failures",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND metric = 'dispatch_failed' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Average delivery time",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT SUM(value) FILTER (WHERE metric = 'delivery_seconds') / NULLIF(SUM(value) FILTER (WHERE metric = 'delivered_timed'), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Return rate (per dispatched)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT SUM(value) FILTER (WHERE metric = 'returned')::float / NULLIF(SUM(value) FILTER (WHERE metric = 'dispatched'), 0) AS value FROM daily_rollups WHERE scope = 'warehouse' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "type": "gauge",
+      "title": "Courier utilisation (now)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT SUM(active_assignments)::float / NULLIF(SUM(max_active_shipments), 0) AS value FROM couriers WHERE status = 'active' AND NOT deleted",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Failed events (dead letters)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS value FROM pipeline_issues WHERE kind = 'dead_letter' AND $__timeFilter(occurred_at)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Over time",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "id": 12
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Shipments per day",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT day::timestamptz AS time, metric, SUM(value) AS value FROM daily_rollups WHERE scope = 'warehouse' AND metric IN ('created', 'dispatched', 'delivered', 'delivery_failed', 'returned') AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ]
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Warehouses and couriers",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      },
+      "id": 14
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Warehouse throughput",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(w.code, r.scope_id::text) AS warehouse, SUM(value) FILTER (WHERE metric = 'created') AS created, SUM(value) FILTER (WHERE metric = 'dispatched') AS dispatched, SUM(value) FILTER (WHERE metric = 'delivered') AS delivered, SUM(value) FILTER (WHERE metric = 'delivery_failed') AS failed, SUM(value) FILTER (WHERE metric = 'returned') AS returns, ROUND(SUM(value) FILTER (WHERE metric = 'delivery_seconds')::numeric / 3600 / NULLIF(SUM(value) FILTER (WHERE metric = 'delivered_timed'), 0), 1) AS avg_hours FROM daily_rollups r LEFT JOIN (SELECT warehouse_id, MAX(warehouse_code) AS code FROM shipments GROUP BY 1) w ON w.warehouse_id = r.scope_id WHERE scope = 'warehouse' AND day BETWEEN $__timeFrom()::date AND $__timeTo()::date GROUP BY 1 ORDER BY dispatched DESC NULLS LAST",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Couriers",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT c.code, c.full_name, c.status, c.active_assignments AS active, c.max_active_shipments AS capacity, ROUND(c.active_assignments::numeric / NULLIF(c.max_active_shipments, 0), 2) AS utilisation, COALESCE(SUM(r.value) FILTER (WHERE r.metric = 'assigned'), 0) AS assigned, COALESCE(SUM(r.value) FILTER (WHERE r.metric = 'delivered'), 0) AS delivered FROM couriers c LEFT JOIN daily_rollups r ON r.scope = 'courier' AND r.scope_id = c.id AND r.day BETWEEN $__timeFrom()::date AND $__timeTo()::date WHERE NOT c.deleted GROUP BY c.id ORDER BY assigned DESC, c.code",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Pipeline issues",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "id": 17
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Latest issues",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "analytics"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT occurred_at AS time, kind, source, reason, event_type, status, detail FROM pipeline_issues WHERE $__timeFilter(occurred_at) ORDER BY occurred_at DESC LIMIT 100",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "analytics"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    }
+  ],
+  "editable": false,
+  "graphTooltip": 1
+}

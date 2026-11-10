@@ -3,13 +3,14 @@ from typing import Annotated
 from fastapi import Depends
 
 from sl_platform.auth import Auth, Principal, TokenVerifier
+from sl_platform.revocation import TokenDenylist
 from sl_platform.roles import UserRole
 from warehouse.config import settings
 from warehouse.db import SessionDep
 from warehouse.services.warehouses import WarehouseService
 
 verifier = TokenVerifier.from_settings(settings)
-auth = Auth(verifier)
+auth = Auth(verifier, TokenDenylist.from_settings(settings))
 
 
 async def get_service(session: SessionDep) -> WarehouseService:

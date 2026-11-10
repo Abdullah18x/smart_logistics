@@ -19,12 +19,20 @@ from temporalio.service import RPCError, RPCStatusCode
 from orchestrator.config import Settings
 from orchestrator.contracts import DispatchInput, FieldUpdate
 from orchestrator.temporal import start_dispatch
+from sl_platform.consumer import check_contract, record_lag
+from sl_platform.dlq import DeadLetters
 from sl_platform.events import EventEnvelope, Topics
+from sl_platform.metrics import EVENTS_CONSUMED
+from sl_platform.outbox import KafkaPublisher
+from sl_platform.schema_registry import SchemaRegistry
+from sl_platform.telemetry import consume_span
 from sl_platform.worker import retry_until_ready
 
 logger = logging.getLogger("orchestrator.trigger")
 DISPATCH_REQUESTED = "shipment.dispatch_requested"
 MILESTONE_RECORDED = "tracking.milestone_recorded"
+#: The event types this consumer acts on; everything else on its topics is ignored.
+HANDLED = frozenset({DISPATCH_REQUESTED, MILESTONE_RECORDED})
 
 
 async def handle(client: Client, settings: Settings, envelope: EventEnvelope) -> bool:
@@ -77,16 +85,105 @@ async def forward_milestone(client: Client, envelope: EventEnvelope) -> bool:
     return True
 
 
-async def run_trigger(client: Client, settings: Settings, stop: asyncio.Event) -> None:
+async def deliver(
+    client: Client, settings: Settings, envelope: EventEnvelope, stop: asyncio.Event
+) -> None:
+    """Act on one event, inside a CONSUMER span so the workflow it starts (or
+    signals) joins the trace of the request behind the event.
+
+    Never given up on: a dispatch request waits here, its offset uncommitted,
+    until Temporal accepts it.
+    """
+    event_type = envelope.event_type
+    while not stop.is_set():
+        try:
+            with consume_span(
+                event_type=event_type,
+                event_id=envelope.event_id,
+                traceparent=envelope.traceparent,
+                consumer="orchestrator",
+            ):
+                acted = await handle(client, settings, envelope)
+        except Exception:
+            EVENTS_CONSUMED.labels("orchestrator", event_type, "failed").inc()
+            logger.exception("could not start dispatch; retrying in 5s")
+            await asyncio.sleep(5)
+            continue
+        EVENTS_CONSUMED.labels(
+            "orchestrator", event_type, "processed" if acted else "ignored"
+        ).inc()
+        return
+
+
+async def triage(
+    raw: bytes,
+    *,
+    topic: str | None,
+    key: str | None,
+    registry: SchemaRegistry | None,
+    dead_letters: DeadLetters | None,
+) -> EventEnvelope | None:
+    """The envelope to act on, or None when the message was dead-lettered:
+    unreadable, or an event we act on whose payload breaks its contract."""
+    try:
+        envelope = EventEnvelope.from_bytes(raw)
+    except Exception as exc:
+        await _dead_letter(dead_letters, raw, "unparseable", f"{type(exc).__name__}: {exc}",
+                           topic=topic, key=key)  # fmt: skip
+        return None
+    if envelope.event_type in HANDLED:
+        problem = await check_contract("orchestrator", envelope, registry)
+        if problem is not None:
+            await _dead_letter(dead_letters, raw, "contract_violation", problem,
+                               topic=topic, key=key, envelope=envelope)  # fmt: skip
+            return None
+    return envelope
+
+
+async def _dead_letter(
+    dead_letters: DeadLetters | None,
+    raw: bytes,
+    reason: str,
+    error: str,
+    *,
+    topic: str | None,
+    key: str | None,
+    envelope: EventEnvelope | None = None,
+) -> None:
+    event_type = envelope.event_type if envelope else "unknown"
+    EVENTS_CONSUMED.labels("orchestrator", event_type, "dead_lettered").inc()
+    logger.error("orchestrator dead-lettered a message (%s): %s", reason, error[:300])
+    if dead_letters is not None:
+        await dead_letters.send(
+            "orchestrator",
+            raw,
+            reason=reason,
+            error=error,
+            source_topic=topic,
+            key=key,
+            event_id=str(envelope.event_id) if envelope else None,
+            event_type=envelope.event_type if envelope else None,
+        )
+
+
+async def run_trigger(
+    client: Client,
+    settings: Settings,
+    stop: asyncio.Event,
+    *,
+    registry: SchemaRegistry | None = None,
+) -> None:
     from aiokafka import AIOKafkaConsumer
 
     consumer: AIOKafkaConsumer | None = None
+    publisher = KafkaPublisher(settings.kafka_bootstrap_servers)
 
     async def connect() -> None:
         nonlocal consumer
         candidate = AIOKafkaConsumer(
             Topics.SHIPMENT,
             Topics.TRACKING,
+            Topics.retry("orchestrator"),
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id="orchestrator",
             enable_auto_commit=False,
@@ -101,24 +198,27 @@ async def run_trigger(client: Client, settings: Settings, stop: asyncio.Event) -
 
     if not await retry_until_ready(connect, "dispatch trigger", stop):
         return
+    if not await retry_until_ready(publisher.start, "dead-letter publisher", stop):
+        await consumer.stop()
+        return
+    dead_letters = DeadLetters(publisher)
     try:
         while not stop.is_set():
             batch = await consumer.getmany(timeout_ms=500)
             for _, messages in batch.items():
                 for message in messages:
-                    try:
-                        envelope = EventEnvelope.from_bytes(message.value)
-                    except Exception:
-                        logger.exception("dropping an unparseable message")
-                        continue
-                    while not stop.is_set():
-                        try:
-                            await handle(client, settings, envelope)
-                            break
-                        except Exception:
-                            logger.exception("could not start dispatch; retrying in 5s")
-                            await asyncio.sleep(5)
+                    envelope = await triage(
+                        message.value,
+                        topic=message.topic,
+                        key=(message.key or b"").decode() or None,
+                        registry=registry,
+                        dead_letters=dead_letters,
+                    )
+                    if envelope is not None:
+                        await deliver(client, settings, envelope, stop)
             if batch:
                 await consumer.commit()
+            await record_lag(consumer, "orchestrator")
     finally:
         await consumer.stop()
+        await publisher.stop()

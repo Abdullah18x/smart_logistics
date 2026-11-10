@@ -18,8 +18,13 @@ from datetime import UTC, datetime, timedelta
 
 from pymongo import ReturnDocument
 
+from sl_platform.contracts import validate
 from sl_platform.events import EventEnvelope, Topics
-from sl_platform.outbox import Publisher
+from sl_platform.outbox import Publisher, publish_envelope
+from sl_platform.schema_registry import SchemaRegistry
+from tracking import (
+    contracts as _contracts,  # noqa: F401  (registers this service's event contracts)
+)
 from tracking.store import TrackingStore
 
 logger = logging.getLogger("tracking.relay")
@@ -32,7 +37,7 @@ EVENT_TYPES = {
 
 
 def envelope_for(event: dict) -> EventEnvelope:
-    return EventEnvelope(
+    envelope = EventEnvelope(
         event_id=uuid.UUID(event["_id"]),
         event_type=EVENT_TYPES[event["type"]],
         occurred_at=event["occurred_at"],
@@ -47,7 +52,10 @@ def envelope_for(event: dict) -> EventEnvelope:
             "failure_reason": event.get("failure_reason"),
             "source": event.get("source"),
         },
+        traceparent=event.get("traceparent"),
     )
+    validate(envelope.event_type, envelope.model_dump(mode="json")["payload"])
+    return envelope
 
 
 class TrackingRelay:
@@ -58,9 +66,11 @@ class TrackingRelay:
         *,
         batch_size: int = 100,
         poll_interval: float = 0.5,
+        registry: SchemaRegistry | None = None,
     ) -> None:
         self.store = store
         self.publisher = publisher
+        self.registry = registry
         self.batch_size = batch_size
         self.poll_interval = poll_interval
 
@@ -82,8 +92,8 @@ class TrackingRelay:
             )
             if event is None:
                 break
-            envelope = envelope_for(event)
-            await self.publisher.send(Topics.TRACKING, envelope.key, envelope.to_bytes())
+            envelope = envelope_for(event).model_dump(mode="json")
+            await publish_envelope(self.publisher, Topics.TRACKING, envelope, self.registry)
             await self.store.events.update_one(
                 {"_id": event["_id"]},
                 {"$set": {"published": True, "published_at": datetime.now(UTC)}},

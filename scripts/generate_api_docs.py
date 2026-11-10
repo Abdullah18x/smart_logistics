@@ -46,6 +46,8 @@ SERVICES = {
     "courier": 8005,
     "orchestrator": 8006,
     "tracking": 8007,
+    "analytics": 8008,
+    "notification": 8009,
 }
 
 #: Per-service probes; each service has its own, so they are not part of the gateway API.

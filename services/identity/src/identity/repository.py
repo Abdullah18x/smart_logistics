@@ -7,6 +7,7 @@ import uuid
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from identity import revocation
 from identity.models import RefreshToken, User, UserStatus, UserWarehouseAssignment
 from identity.security import hash_token
 from sl_platform.db import utcnow
@@ -92,6 +93,8 @@ class RefreshTokenRepository:
             .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
             .values(revoked_at=utcnow())
         )
+        # Their access tokens too, in every service, from the next request on.
+        await revocation.revoke_user(user_id)
         return result.rowcount or 0
 
 

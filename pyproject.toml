@@ -14,6 +14,7 @@ dev = [
     "httpx>=0.28",
     "import-linter>=2.1",
     "pypdf>=5.0",
+    "fakeredis>=2.26",
 ]
 
 [tool.uv]
@@ -32,6 +33,8 @@ shipment-service = { workspace = true }
 courier-service = { workspace = true }
 orchestrator-service = { workspace = true }
 tracking-service = { workspace = true }
+notification-service = { workspace = true }
+analytics-service = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -47,23 +50,23 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 "scripts/html_template.py" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["sl_platform", "identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
+known-first-party = ["sl_platform", "identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking", "notification", "analytics"]
 
 # Service boundaries, enforced in CI (`make lint`). A service may import the
 # platform library, never another service: data crosses only over HTTP or Kafka.
 [tool.importlinter]
-root_packages = ["sl_platform", "identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
+root_packages = ["sl_platform", "identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking", "notification", "analytics"]
 
 [[tool.importlinter.contracts]]
 name = "Services are independent of each other"
 type = "independence"
-modules = ["identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
+modules = ["identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking", "notification", "analytics"]
 
 [[tool.importlinter.contracts]]
 name = "The platform library knows nothing about any service"
 type = "forbidden"
 source_modules = ["sl_platform"]
-forbidden_modules = ["identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking"]
+forbidden_modules = ["identity", "warehouse", "inventory", "shipment", "courier", "orchestrator", "tracking", "notification", "analytics"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -71,3 +74,16 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 addopts = "-q --strict-markers"
+
+[tool.coverage.run]
+branch = true
+omit = ["*/migrations/*", "*/seed.py", "*/tests/*"]
+
+[tool.coverage.report]
+# The CI gate for `./dev.sh test --cov` (full run). Raise it as coverage grows.
+fail_under = 75
+skip_covered = true
+skip_empty = true
+show_missing = false
+precision = 1
+exclude_also = ["if TYPE_CHECKING:", "if __name__ == .__main__.:", "raise NotImplementedError"]

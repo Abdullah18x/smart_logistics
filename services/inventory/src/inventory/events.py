@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from inventory import (
+    contracts as _contracts,  # noqa: F401  (registers this service's event contracts)
+)
 from sl_platform.consumer import EventProcessor
 from sl_platform.events import EventEnvelope, Topics
 from sl_platform.outbox import add_event

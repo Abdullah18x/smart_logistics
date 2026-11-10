@@ -19,6 +19,7 @@ from pymongo.errors import DuplicateKeyError
 from sl_platform.auth import Principal
 from sl_platform.errors import ConflictError, DomainError, NotFoundError, PermissionDeniedError
 from sl_platform.roles import UserRole
+from sl_platform.telemetry import current_traceparent
 from tracking.milestones import (
     COURIER_MILESTONES,
     TERMINAL,
@@ -200,8 +201,10 @@ class JourneyService:
             "failure_reason": update.failure_reason,
             "note": update.note,
             "source": "courier",
-            # The event is its own outbox entry; the worker's relay publishes it.
+            # The event is its own outbox entry; the worker's relay publishes it,
+            # continuing the trace of the request that recorded it.
             "published": False,
+            "traceparent": current_traceparent(),
         }
         try:
             await self.store.events.insert_one(document)
@@ -298,6 +301,7 @@ class JourneyService:
                     "note": None,
                     "source": source,
                     "published": False,
+                    "traceparent": current_traceparent(),
                 }
             )
         except DuplicateKeyError:

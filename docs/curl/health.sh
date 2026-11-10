@@ -31,3 +31,11 @@ curl -s http://localhost:8006/health/ready | jq
 # tracking: liveness, then readiness (checks its own database)
 curl -s http://localhost:8007/health | jq
 curl -s http://localhost:8007/health/ready | jq
+
+# analytics: liveness, then readiness (checks its own database)
+curl -s http://localhost:8008/health | jq
+curl -s http://localhost:8008/health/ready | jq
+
+# notification: liveness, then readiness (checks its own database)
+curl -s http://localhost:8009/health | jq
+curl -s http://localhost:8009/health/ready | jq

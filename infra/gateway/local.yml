@@ -28,6 +28,12 @@ http:
     tracking:
       rule: PathPrefix(`/api/v1/tracking`)
       service: tracking
+    analytics:
+      rule: PathPrefix(`/api/v1/analytics`)
+      service: analytics
+    notification:
+      rule: PathPrefix(`/api/v1/notifications`)
+      service: notification
 
     # Each service's own spec, for the combined Swagger UI at /docs.
     identity-openapi:
@@ -57,6 +63,14 @@ http:
     tracking-openapi:
       rule: Path(`/openapi/tracking.json`)
       service: tracking
+      middlewares: [openapi-json]
+    analytics-openapi:
+      rule: Path(`/openapi/analytics.json`)
+      service: analytics
+      middlewares: [openapi-json]
+    notification-openapi:
+      rule: Path(`/openapi/notification.json`)
+      service: notification
       middlewares: [openapi-json]
 
     docs:
@@ -99,6 +113,12 @@ http:
     tracking:
       loadBalancer:
         servers: [{url: "http://host.docker.internal:8007"}]
+    analytics:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8008"}]
+    notification:
+      loadBalancer:
+        servers: [{url: "http://host.docker.internal:8009"}]
     docs:
       loadBalancer:
         servers: [{url: "http://docs:8080"}]

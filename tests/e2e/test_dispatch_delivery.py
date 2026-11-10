@@ -130,6 +130,33 @@ async def test_dispatch_runs_every_step_and_delivery_follows_the_courier(platfor
     ).json()
     assert public["milestone"] == "delivered"
 
+    # Week 3: the customer and the courier were told, and the metrics moved.
+    support = await platform.login("support.lead@transfleet.com")
+    log = (
+        await platform.http["notification"].get(
+            "/api/v1/notifications", params={"shipment_id": created["id"]}, headers=support
+        )
+    ).json()["items"]
+    told = {(n["template"], n["channel"], n["recipient"]) for n in log}
+    assert {
+        ("shipment_confirmed", "email", "ayesha.khan@example.com"),
+        ("shipment_dispatched", "sms", "+923001234567"),
+        ("out_for_delivery", "sms", "+923001234567"),
+        ("delivered", "email", "ayesha.khan@example.com"),
+    } <= told
+    assert ("new_assignment", "push", courier_id) in told
+    assert {uuid.UUID(n["id"]) for n in log} <= set(platform.notifications.ids)
+    summary = (
+        await platform.http["analytics"].get("/api/v1/analytics/summary", headers=admin)
+    ).json()
+    assert summary["dispatched"] >= 1 and summary["delivered"] >= 1
+    assert summary["average_delivery_hours"] is not None
+    couriers = (
+        await platform.http["analytics"].get("/api/v1/analytics/couriers", headers=admin)
+    ).json()
+    mine = next(c for c in couriers if c["courier_id"] == courier_id)
+    assert mine["assigned"] >= 1 and mine["delivered"] >= 1
+
 
 async def test_no_courier_fails_the_dispatch_cleanly_and_a_retry_succeeds(platform):
     admin = await platform.login("admin@transfleet.com")

@@ -6,6 +6,9 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from identity import (
+    contracts as _contracts,  # noqa: F401  (registers this service's event contracts)
+)
 from identity.models import User
 from identity.repository import AssignmentRepository, RefreshTokenRepository, UserRepository
 from sl_platform.consumer import EventProcessor

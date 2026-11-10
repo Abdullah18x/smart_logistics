@@ -19,6 +19,11 @@ class Settings(ServiceSettings):
             "holds never expire."
         ),
     )
+    hold_sweep_seconds: int = Field(
+        default=300,
+        ge=10,
+        description="How often Celery beat runs the sweep that releases expired holds.",
+    )
 
 
 @lru_cache

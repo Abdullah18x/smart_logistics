@@ -41,6 +41,11 @@ class ServiceSettings(BaseSettings):
     # --- Kafka ------------------------------------------------------------------
     # The host-facing listener Docker Compose publishes; containers override it.
     kafka_bootstrap_servers: str = "localhost:29092"
+    schema_registry_url: str | None = Field(
+        default=None,
+        description="Confluent Schema Registry. When set, published events are registered "
+        "and stamped with a schema id, and consumers validate what they receive.",
+    )
 
     # --- Idempotency ------------------------------------------------------------
     idempotency_ttl_hours: int = 24
@@ -50,8 +55,32 @@ class ServiceSettings(BaseSettings):
         "releases its claim implicitly once the lease runs out.",
     )
 
+    # --- Background jobs (Celery on RabbitMQ) ------------------------------------
+    celery_broker_url: str = "amqp://guest:guest@localhost:5672//"
+
+    # --- Redis: token denylist and caches ---------------------------------------------
+    redis_url: str | None = Field(
+        default=None,
+        description="When set, every service refuses revoked access tokens (Identity writes "
+        "the denylist) and may cache aggregates. Unset: signature and expiry only.",
+    )
+    denylist_user_ttl_seconds: int = Field(
+        default=1800,
+        description="How long a user-wide revocation is kept: at least the longest "
+        "access-token lifetime, after which every token it covers has expired.",
+    )
+    denylist_fail_closed: bool = Field(
+        default=False,
+        description="Refuse every token while Redis is unreachable (default: allow).",
+    )
+
     # --- Telemetry --------------------------------------------------------------
     otel_exporter_otlp_endpoint: str | None = None
+    metrics_port: int | None = Field(
+        default=None,
+        description="Port for the Prometheus endpoint of a process without HTTP (the Kafka "
+        "worker, the Celery worker). The API serves /metrics on its own port instead.",
+    )
 
     @property
     def is_production(self) -> bool:

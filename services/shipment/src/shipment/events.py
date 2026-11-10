@@ -6,6 +6,9 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shipment import (
+    contracts as _contracts,  # noqa: F401  (registers this service's event contracts)
+)
 from shipment.models import Shipment
 from sl_platform.consumer import EventProcessor
 from sl_platform.events import EventEnvelope, Topics
@@ -49,6 +52,12 @@ def emit_created(session: AsyncSession, shipment: Shipment) -> None:
             **summary(shipment),
             "created_by": shipment.created_by,
             "destination_city": shipment.destination_address.city,
+            # Who to tell about the delivery (the notification service keeps a copy).
+            "recipient": {
+                "name": shipment.destination_address.contact_name,
+                "phone": shipment.destination_address.contact_phone,
+                "email": shipment.destination_address.contact_email,
+            },
             "items": [{"sku_id": i.sku_id, "quantity": i.quantity} for i in shipment.items],
         },
         producer=PRODUCER,

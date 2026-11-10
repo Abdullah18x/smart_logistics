@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from identity import revocation
 from identity.config import settings
 from identity.db import SessionDep
 from identity.keys import SigningKey
@@ -22,7 +23,8 @@ auth = Auth(
         issuer=settings.jwt_issuer,
         audience=settings.jwt_audience,
         public_key_pem=signing_key.public_pem,
-    )
+    ),
+    revocation.denylist,
 )
 
 warehouse_client = ServiceClient("warehouse", settings.warehouse_service_url)

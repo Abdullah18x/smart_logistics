@@ -3,8 +3,8 @@
 **Project:** SmartLogistics — Intelligent Supply Chain & Delivery Orchestration Platform
 **Client:** TransFleet
 **Component:** Backend platform (Part A) + GenAI layer (Part B)
-**Status:** Week 2 complete (dispatch, courier assignment, tracking, delivery)
-**Last updated:** 2026-10-13
+**Status:** Week 3 complete (event hardening, notifications, analytics, observability)
+**Last updated:** 2026-11-10
 
 > This document describes the **microservices** architecture on the `microservices` branch.
 > The Phase 1 modular monolith and its architecture document live on the `phase_1` branch.
@@ -24,7 +24,7 @@
 9. [Consistency and Idempotency](#9-consistency-and-idempotency)
 10. [API and Security](#10-api-and-security)
 11. [Observability](#11-observability)
-12. [Dispatch and Delivery](#12-dispatch-and-delivery)
+12. [Dispatch, Delivery, Notifications and Analytics](#12-dispatch-delivery-notifications-and-analytics)
 13. [Part B — GenAI Layer](#13-part-b--genai-layer)
 14. [Runtime Topology](#14-runtime-topology)
 15. [Repository Layout](#15-repository-layout)
@@ -67,9 +67,9 @@ Week 2. Status means **built and verified by tests**, not designed.
 | **3** | Delivery workflow: pickup, updates, attempts, confirmation | [§12.3](#123-delivery-workflow-and-tracking) | ✅ Built: `DeliveryWorkflow` driven by courier updates; gap filling, attempt counting, automatic return, overdue-pickup reassignment |
 | | Idempotent retries, duplicate prevention | [ADR-007](adr/ADR-007-layered-idempotency.md) | ✅ `Idempotency-Key` per caller with leases, deterministic ids, consumer dedupe, workflow ids per attempt, device `event_id`s |
 | | High-volume field updates, real-time visibility | tracking service, [§12.3](#123-delivery-workflow-and-tracking) | ✅ Built: MongoDB journeys, single and batch updates, out-of-order handling, public lookup by reference |
-| **4** | Event-driven behaviours: traceable, recoverable, no double-processing | [§5.2](#52-asynchronous-kafka-events) | ✅ Kafka with transactional outbox and per-consumer dedupe; 🔴 dead-letter topic and Schema Registry Week 3 |
-| **5** | Analytics metrics (nine listed) | analytics service | 🔴 Week 3 |
-| **6** | Observability and failure diagnosis | [§11](#11-observability) | 🟡 Structured logs with request ids, health/readiness probes, OpenTelemetry traces to Jaeger; metrics and dashboards Week 3 |
+| **4** | Event-driven behaviours: traceable, recoverable, no double-processing | [§5.2](#52-asynchronous-kafka-events) | ✅ Kafka with transactional outbox and per-consumer dedupe; JSON Schema contracts in Schema Registry; dead-letter topics with replay ([ADR-015](adr/ADR-015-event-contracts-schema-registry.md)) |
+| **5** | Analytics metrics (nine listed) | [§12.6](#126-analytics) | ✅ Built: facts + daily rollups from events, nightly rebuild, `/api/v1/analytics/summary` ([ADR-021](adr/ADR-021-analytics-rollups.md)) |
+| **6** | Observability and failure diagnosis | [§11](#11-observability) | ✅ Logs with request and trace ids; traces through HTTP, Kafka, Celery and Temporal; Prometheus metrics, 12 alert rules, three Grafana dashboards ([ADR-022](adr/ADR-022-observability-stack.md)) |
 
 **Tech stack**, as mandated by the brief:
 
@@ -114,8 +114,10 @@ flowchart TB
         cr[courier<br/>couriers · assignments]
         trk[tracking<br/>journeys · field updates]
         orc[orchestrator<br/>Temporal worker + trigger]
+        an[analytics<br/>facts · daily rollups · issues]
+        nt[notification<br/>delivery log · suppressions]
     end
-    gw --> id & wh & inv & shp & cr & trk & orc
+    gw --> id & wh & inv & shp & cr & trk & orc & an & nt
 
     id --- iddb[(identity-db)]
     wh --- whdb[(warehouse-db)]
@@ -124,6 +126,11 @@ flowchart TB
     cr --- crdb[(courier-db)]
     trk --- mongo[(MongoDB)]
     orc --- temporal[[Temporal · own PostgreSQL]]
+    an --- andb[(analytics-db)]
+    nt --- ntdb[(notification-db)]
+    nt -- "SMTP" --> mail[[Mailpit]]
+    rabbit[[RabbitMQ · Celery]] -.- inv & an & nt
+    redis[[Redis · token denylist]] -.- id & wh & inv & shp & cr & trk & orc & an & nt
 
     shp -- "REST: reserve / release stock" --> inv
     id -- "REST: validate warehouse" --> wh
@@ -137,6 +144,9 @@ flowchart TB
     kafka -- "courier.assigned" --> shp & trk
     kafka -- "courier.* → login link · warehouse.deleted" --> id
     kafka -- "dispatch_requested · milestone_recorded" --> orc
+    kafka -- "shipment.* · courier.* · dlq.*" --> an
+    kafka -- "shipment.* · courier.*" --> nt
+    sr[[Schema Registry]] -.- kafka
 ```
 
 ---
@@ -144,7 +154,9 @@ flowchart TB
 ## 4. Services and Ownership
 
 Each service is a FastAPI **API process** plus a **worker process** (outbox relay and Kafka
-consumers), built from the same image and scaled separately.
+consumers), built from the same image and scaled separately. Services with background jobs
+(inventory, analytics, notification) add a **Celery worker** with beat
+([ADR-019](adr/ADR-019-celery-background-jobs.md)).
 
 | Service | API port | Database | Owns | Publishes | Consumes | Calls |
 |---|---|---|---|---|---|---|
@@ -155,6 +167,8 @@ consumers), built from the same image and scaled separately.
 | **courier** | 8005 | courier-db :5445 | Couriers, assignments, warehouse replica | `courier.*` incl. `assigned` / `unassigned` / `availability_changed` | `warehouse.*`, `shipment.status_changed` (complete / release assignments) | — |
 | **orchestrator** | 8006 | — (state in Temporal) | `DispatchWorkflow`, `DeliveryWorkflow`, workflow progress API | — | `shipment.dispatch_requested`, `tracking.milestone_recorded` | shipment, inventory, courier, tracking (as `system`) |
 | **tracking** | 8007 | MongoDB :27017 | Journeys, field updates (each its own outbox entry) | `tracking.milestone_recorded` | `courier.assigned`, `shipment.status_changed` (returns) | — |
+| **analytics** | 8008 | analytics-db :5446 | Milestone facts, shipment state, daily rollups, courier load, pipeline issues | — | `shipment.*`, `courier.*`, every `dlq.*` topic | — |
+| **notification** | 8009 | notification-db :5447 | Delivery log, suppressions, recipient and courier contacts | — | `shipment.created` / `status_changed`, `courier.*` | SMTP (Mailpit), mock SMS / push |
 
 Why the boundaries fall here is in [ADR-002](adr/ADR-002-service-boundaries.md). The
 orchestrator holds no business data: it sequences other services' operations and keeps only
@@ -180,7 +194,7 @@ Used only when the caller cannot continue without the answer
 | identity → warehouse | `GET /warehouses/{id}` | An operator cannot be scoped to a warehouse that does not exist |
 | every service → identity | `GET /.well-known/jwks.json` | At start-up (best effort), then when the cache is an hour old or a token has an unknown `kid`; never per request |
 | orchestrator → identity | `POST /auth/service-token` | Client credentials for a 5-minute `system` token, cached and renewed 60 s before expiry |
-| orchestrator activities → shipment, inventory, courier, tracking | validate, confirm hold, labels, assign / release / reassign courier, open / cancel journey, set status | Workflow steps; each call is idempotent and retried by Temporal ([§12](#12-dispatch-and-delivery)) |
+| orchestrator activities → shipment, inventory, courier, tracking | validate, confirm hold, labels, assign / release / reassign courier, open / cancel journey, set status | Workflow steps; each call is idempotent and retried by Temporal ([§12](#12-dispatch-delivery-notifications-and-analytics)) |
 
 Every call goes through `ServiceClient`: 3 s timeout; up to 2 retries, only for reads or writes
 carrying an `Idempotency-Key`; a circuit breaker that opens after 5 consecutive failed attempts
@@ -199,21 +213,29 @@ aggregate id so one entity's events stay ordered.
 
 | Topic | Event types | Consumed by |
 |---|---|---|
-| `identity.events` | `user.created`, `.updated`, `.role_changed`, `.status_changed`, `.scope_changed`, `.deleted`, `.restored` | (analytics, notifications — Week 3) |
+| `identity.events` | `user.created`, `.updated`, `.role_changed`, `.status_changed`, `.scope_changed`, `.deleted`, `.restored` | — |
 | `warehouse.events` | `warehouse.created`, `.updated`, `.status_changed`, `.deleted`, `.restored` — full snapshots | inventory, shipment (replicas), identity (`deleted`) |
-| `inventory.events` | `stock.reserved`, `.committed`, `.released`, `.adjusted` | (analytics — Week 3) |
-| `shipment.events` | `shipment.created`, `.updated`, `.status_changed`, `.dispatch_requested` | inventory (confirm / commit / release), courier (end assignments), tracking (returns), orchestrator (start dispatch) |
-| `courier.events` | `courier.created`, `.updated`, `.status_changed`, `.availability_changed`, `.deleted`, `.restored`, `.assigned`, `.unassigned` | identity (login link), shipment (`courier_id`), tracking (journey courier) |
+| `inventory.events` | `stock.reserved`, `.committed`, `.released`, `.adjusted` | — |
+| `shipment.events` | `shipment.created`, `.updated`, `.status_changed`, `.dispatch_requested` | inventory (confirm / commit / release), courier (end assignments), tracking (returns), orchestrator (start dispatch), notification, analytics |
+| `courier.events` | `courier.created`, `.updated`, `.status_changed`, `.availability_changed`, `.deleted`, `.restored`, `.assigned`, `.unassigned` | identity (login link), shipment (`courier_id`), tracking (journey courier), notification (courier contacts, new jobs), analytics (utilisation) |
 | `tracking.events` | `tracking.milestone_recorded` | orchestrator (signal the delivery workflow) |
 
-Envelope: `event_id`, `event_type`, `version`, `occurred_at`, `producer`, `payload`.
+| `dlq.<consumer>` · `retry.<consumer>` | A consumer's failed events · their replays | analytics (pipeline issues) · that consumer only |
+
+Envelope: `event_id`, `event_type`, `version`, `occurred_at`, `producer`, `key`, `payload`,
+`traceparent`, `schema_id`. Each event type's payload has a JSON Schema contract
+(`<service>/contracts.py`): checked when the event is staged, registered in the **Schema
+Registry** (subject `<topic>-<event_type>`, BACKWARD compatible) when published, and checked
+again by consumers against the registered version.
 Consumers record `event_id` in `processed_events` with their effect, so redelivery is a
 no-op. Services without a SQL database (orchestrator, tracking) consume with a stateless
 processor whose handlers are idempotent by themselves (Temporal's workflow-id rules, Mongo
 `_id`s). A handler that keeps failing gets 5 attempts with backoff; after that the event is
-logged with its id and **skipped** (its offset is committed), so it needs a manual replay. The
-dead-letter topic in Week 3 replaces this. If Kafka is down, workers wait with backoff and
-the outbox holds every event.
+moved to the consumer's **dead-letter topic** `dlq.<consumer>` with headers saying why
+(handler failed, unparseable, contract violation), and its offset is committed so the
+partition moves on. `./dev.sh dlq list | replay <consumer>` inspects and replays them to
+`retry.<consumer>`, which only that consumer reads. If Kafka is down, workers wait with
+backoff and the outbox holds every event.
 
 ---
 
@@ -365,7 +387,7 @@ sequenceDiagram
     S--)K: status_changed → courier completes the assignment
 ```
 
-Details, failure handling and compensation: [§12](#12-dispatch-and-delivery).
+Details, failure handling and compensation: [§12](#12-dispatch-delivery-notifications-and-analytics).
 
 ---
 
@@ -400,7 +422,9 @@ decide, and Kafka delivery is deduplicated per consumer.
   ([ADR-012](adr/ADR-012-edge-gateway-unified-docs.md)).
 - **Tokens**: RS256 signed by identity, verified locally everywhere; refresh tokens stored
   hashed and rotated, replay revokes the user's sessions; lockout after 5 failed logins for
-  15 minutes ([ADR-003](adr/ADR-003-token-verification-jwks.md)).
+  15 minutes ([ADR-003](adr/ADR-003-token-verification-jwks.md)). **Revocation is
+  immediate**: sign-out, suspension, role or scope changes write a Redis denylist that every
+  service checks per request ([ADR-023](adr/ADR-023-token-revocation-redis.md)).
 - **Authorisation in two layers**, enforced by each service: the **role** opens the route; the
   **scope** in the token (`warehouse_ids`, `courier_id`) narrows the rows. An operator sees
   only their warehouses' stock and shipments; a courier only their own shipments.
@@ -427,22 +451,25 @@ unauthenticated business route and returns the milestone timeline only.
 
 ## 11. Observability
 
-| Signal | Now | Week 3 |
-|---|---|---|
-| Logs | Structured (JSON in Docker), one line per request with `request_id` (`X-Request-ID` honoured and returned) | `trace_id` / `span_id` on every line |
-| Traces | OpenTelemetry for FastAPI, httpx and SQLAlchemy, exported to **Jaeger** (:16686) when an OTLP endpoint is set; `traceparent` forwarded on service calls | Context carried through Kafka headers and Temporal activities |
-| Health | `/health` (liveness, touches nothing) and `/health/ready` (checks the service's own store: PostgreSQL, MongoDB, or Temporal for the orchestrator) on every service | — |
-| Workflows | **Temporal UI** (:8233): every dispatch and delivery, each step's input, output, retries and failure; `GET /api/v1/dispatches/{workflow_id}` for the current step | Workflow outcome metrics |
-| Metrics | — | Prometheus: RED per route, outbox backlog age, consumer lag, workflow outcomes, the nine business metrics |
-| Dashboards and alerts | — | Grafana: API health, pipeline health, business KPIs |
+| Signal | What there is |
+|---|---|
+| Logs | Structured (JSON in Docker), one line per request with `request_id`; every line carries `trace_id` / `span_id` |
+| Traces | OpenTelemetry to **Jaeger** (:16686): FastAPI, httpx, SQLAlchemy; `traceparent` stored with each outbox row and sent as a Kafka header; Celery tasks and Temporal workflows/activities continue the trace |
+| Metrics | **Prometheus** (:9090): RED per route template, outbox backlog age, consumer outcomes, handler time, end-to-end event lag, Kafka lag, dead letters, Celery tasks, Temporal SDK metrics, notifications, denylist and cache |
+| Alerts | 12 rules (`infra/prometheus/rules/alerts.yml`): targets down, 5xx rate, read/write p95 targets, outbox stuck, event lag, consumer lag, dead letters, registry outage, failing tasks, notifications, workflows |
+| Dashboards | **Grafana** (:3000): API health, event pipeline, business KPIs (from the analytics database) — generated by `infra/grafana/build_dashboards.py` |
+| Health | `/health` (liveness) and `/health/ready` (the service's own store) on every service |
+| Workflows | **Temporal UI** (:8233); `GET /api/v1/dispatches/{workflow_id}` for the current step |
+| Failed events | `./dev.sh dlq list`; `GET /api/v1/analytics/issues` (dead letters and failed dispatches) |
 
-Diagnosis targets from the brief: dispatch workflows (Temporal UI), courier
-assignment and tracking updates (traces + workflow history), warehouse reservation (ledger +
-traces), background workers (outbox backlog and consumer lag metrics).
+Diagnosis targets from the brief: dispatch workflows (Temporal UI, workflow metrics), courier
+assignment and tracking updates (one trace across services), warehouse reservation (ledger +
+traces), background workers (outbox age, consumer lag, dead letters, Celery outcomes).
+Decisions in [ADR-022](adr/ADR-022-observability-stack.md).
 
 ---
 
-## 12. Dispatch and Delivery
+## 12. Dispatch, Delivery, Notifications and Analytics
 
 Decisions: **Temporal** orchestration ([ADR-010](adr/ADR-010-temporal-orchestration.md)),
 **MongoDB** for tracking ([ADR-011](adr/ADR-011-mongodb-tracking.md)), **real PDF labels**,
@@ -519,6 +546,56 @@ Temporal 1.29 (auto-setup) with its own PostgreSQL and the Temporal UI on :8233,
 courier-db, and the courier, orchestrator and tracking APIs and workers — in Compose, the
 gateway routes and `./dev.sh`.
 
+### 12.5 Notifications
+
+The notification service turns milestones into messages
+([ADR-020](adr/ADR-020-notification-service.md)):
+
+| Trigger | Who | Channels |
+|---|---|---|
+| `shipment.created` | customer | email (confirmation) |
+| `dispatched` · `delivered` | customer | email + SMS, with the public tracking link |
+| `out_for_delivery` · `delivery_failed` | customer | SMS |
+| `return_initiated` · `cancelled` | customer | email |
+| `dispatch_failed` | operations mailbox | email with the reason |
+| `courier.assigned` | the courier | push + SMS |
+
+The consumer writes one row per message (id derived from event, template and channel, so a
+redelivery adds nothing) and queues a Celery send after commit. Sending locks the row,
+checks suppressions, retries provider errors with backoff up to 5 attempts, and records the
+outcome. Email goes over SMTP to Mailpit locally (:8025); SMS and push are logged mocks.
+Support reads the delivery log, resends, and manages suppressions.
+
+### 12.6 Analytics
+
+The analytics service keeps a fact table of milestones, the latest state per shipment, and
+daily counters per warehouse and courier, updated in the event's transaction and rebuilt
+nightly from the facts ([ADR-021](adr/ADR-021-analytics-rollups.md)). It also reads every
+`dlq.*` topic into `pipeline_issues`.
+
+| Metric | Endpoint field | Definition |
+|---|---|---|
+| Total shipments | `total_shipments` | created in the period |
+| Dispatched over time | `/timeseries?metric=dispatched` | per UTC day, zero-filled |
+| Delivered · failed deliveries | `delivered` · `failed_deliveries` (+ rate) | events in the period |
+| Average delivery time | `average_delivery_hours` | created → delivered, for deliveries in the period |
+| Courier utilisation | `courier_utilisation` · `/couriers` | active assignments ÷ capacity of active couriers, now |
+| Warehouse throughput | `warehouse_throughput` · `/warehouses` | per warehouse, incl. dispatched per day |
+| Return rate | `return_rate` | returns started ÷ shipments dispatched |
+| Failed events / workflow issues | `failed_events` · `/issues` | dead letters and failed dispatches |
+
+### 12.7 Background jobs
+
+| Job | Service | Schedule |
+|---|---|---|
+| `notification.send` | notification | queued per message; retries with backoff |
+| `notification.requeue_overdue` | notification | every 60 s |
+| `inventory.release_expired_holds` | inventory | every 300 s |
+| `analytics.recompute_recent` · `analytics.recompute` | analytics | 02:17 UTC (last 2 days) · on demand |
+
+Celery on RabbitMQ, one queue per service, beat inside the service's Celery worker
+([ADR-019](adr/ADR-019-celery-background-jobs.md)).
+
 ---
 
 ## 13. Part B — GenAI Layer
@@ -546,13 +623,19 @@ integrates through Kafka and read-only queries.
 |---|---|---|
 | Gateway (Traefik) | 8000 (dashboard 8080) | Docker labels in full-Docker mode; `infra/gateway/local.yml` when services run on the host |
 | Swagger UI | 8000/docs | One page, a dropdown per service |
-| identity · warehouse · inventory · shipment · courier · orchestrator · tracking APIs | 8001 – 8007 | Each also has `/docs` |
-| Workers | — | One per service: outbox relay + consumers; the orchestrator's runs the Temporal worker and the Kafka trigger |
-| PostgreSQL ×5 | 5441–5445 | One container and volume per service |
+| identity · warehouse · inventory · shipment · courier · orchestrator · tracking · analytics · notification APIs | 8001 – 8009 | Each also has `/docs` and `/metrics` |
+| Workers | metrics 9100 (Docker) / 91NN (local) | One per service: outbox relay + consumers; the orchestrator's runs the Temporal worker and the Kafka trigger |
+| Celery workers (+ beat) | metrics 9100 / 92NN | inventory, analytics, notification |
+| PostgreSQL ×7 | 5441–5447 | One container and volume per service |
 | Temporal · Temporal UI | 7233 · 8233 | Its own PostgreSQL (`temporal-db`) |
 | MongoDB | 27017 | Tracking |
 | Kafka (KRaft) | 29092 (host) / 9092 (containers) | Kafka UI on 8090 with `--profile tools` |
-| Jaeger | 16686 | OTLP on 4318 inside the network |
+| Jaeger | 16686 | OTLP on 4318 |
+| Schema Registry | 8081 | Confluent, JSON Schema, BACKWARD |
+| RabbitMQ | 5672 (UI 15672) | Celery broker |
+| Redis | 6379 | Token denylist, caches |
+| Prometheus · Grafana | 9090 · 3000 | Alert rules; three dashboards |
+| Mailpit | 1025 (SMTP) · 8025 (inbox) | Every email the platform sends |
 
 Two run modes ([ADR-016](adr/ADR-016-cross-platform-developer-cli.md)):
 
@@ -581,6 +664,9 @@ tests/e2e/                   every service in one process, an in-memory bus, a r
 infra/docker/                one Dockerfile for every service + entrypoint
 infra/gateway/               gateway routes for local mode
 infra/temporal/              Temporal dynamic config
+infra/prometheus/            scrape configs (docker, local) and alert rules
+infra/grafana/               provisioning, dashboards and their generator
+.github/workflows/ci.yml     lint, migrations, every suite, coverage gate
 scripts/                     dev CLI, API-collection and database-reference generators
 docs/                        this document, PRD, database reference, ADRs, API collection
 docker-compose.yml · dev.sh · dev.ps1 · dev.cmd · Makefile
@@ -606,10 +692,15 @@ docker-compose.yml · dev.sh · dev.ps1 · dev.cmd · Makefile
 | [012](adr/ADR-012-edge-gateway-unified-docs.md) | One gateway, one API portal | Accepted |
 | [013](adr/ADR-013-monorepo-shared-platform.md) | Monorepo, shared platform library, enforced boundaries | Accepted |
 | [014](adr/ADR-014-soft-deletion-audit-trail.md) | Soft deletion and immutable audit trail | Accepted |
-| [015](adr/ADR-015-event-schemas-avro-deferred.md) | JSON envelopes now, Avro + Schema Registry Week 3 | Accepted |
+| [015](adr/ADR-015-event-contracts-schema-registry.md) | Event contracts in Schema Registry (JSON Schema), dead-letter topics | Accepted (revised Week 3) |
 | [016](adr/ADR-016-cross-platform-developer-cli.md) | One cross-platform developer CLI | Accepted |
 | [017](adr/ADR-017-service-accounts.md) | Service accounts for service-to-service calls | Accepted |
 | [018](adr/ADR-018-courier-assignment.md) | Courier assignment: automatic with manual override | Accepted |
+| [019](adr/ADR-019-celery-background-jobs.md) | Background jobs on Celery with RabbitMQ | Accepted |
+| [020](adr/ADR-020-notification-service.md) | Notification service: event-driven, logged, sent by tasks | Accepted |
+| [021](adr/ADR-021-analytics-rollups.md) | Analytics: facts, incremental daily rollups, nightly rebuild | Accepted |
+| [022](adr/ADR-022-observability-stack.md) | Observability: Prometheus, Grafana, OpenTelemetry end to end | Accepted |
+| [023](adr/ADR-023-token-revocation-redis.md) | Immediate token revocation with a Redis denylist | Accepted (amends 003) |
 
 ---
 
@@ -617,14 +708,14 @@ docker-compose.yml · dev.sh · dev.ps1 · dev.cmd · Makefile
 
 | Attribute | Target | Verification |
 |---|---|---|
-| Throughput | 10,000 shipments/day sustained; 3× seasonal peak | Load test on create, dispatch and tracking paths (Week 3) |
-| API latency | p95 < 150 ms reads, < 300 ms writes (excluding workflow completion) | Prometheus histograms (Week 3) |
-| Tracking ingest | 500 updates/s sustained | Load test (Week 3) |
-| Dispatch completion | p95 < 30 s end to end (when a courier is free) | Temporal metrics (Week 3) |
-| Event lag | p95 < 5 s from commit to consumer effect | Consumer-lag metric (Week 3) |
+| Throughput | 10,000 shipments/day sustained; 3× seasonal peak | Load test on create, dispatch and tracking paths (deferred to Week 4) |
+| API latency | p95 < 150 ms reads, < 300 ms writes (excluding workflow completion) | Prometheus histograms; `SlowReads` / `SlowWrites` alerts |
+| Tracking ingest | 500 updates/s sustained | Load test (deferred to Week 4) |
+| Dispatch completion | p95 < 30 s end to end (when a courier is free) | Temporal SDK metrics |
+| Event lag | p95 < 5 s from commit to consumer effect | `event_end_to_end_seconds`; `EventLagHigh` alert |
 | Fault isolation | One service or database down affects only the flows that need it | Stop each container in turn |
 | Durability | No committed change or event lost on process crash | Outbox + Temporal; crash tests |
-| Recoverability | Failed workflows retryable; failed events replayable | Temporal UI; dead-letter replay (Week 3) |
+| Recoverability | Failed workflows retryable; failed events replayable | Temporal UI; `./dev.sh dlq replay` |
 | Security | No secrets in code; mutations audited; scoping enforced in every service | Review + tests |
 
 ---
@@ -639,7 +730,7 @@ are mocks behind stable interfaces; currency, tax and billing are out of scope.
 |---|---|
 | Qdrant or pgvector for Part B? | Qdrant |
 | Which LLM provider? | Provider-agnostic adapter |
-| Is a real notification channel expected? | Mock adapters, logged and inspectable |
+| Is a real notification channel expected? | Real SMTP to Mailpit; SMS and push mocked and logged |
 | Kubernetes manifests per service? | Not in Weeks 1–3; the monolith's manifests are on `phase_1` |
 
 | Risk | Mitigation |
@@ -647,8 +738,8 @@ are mocks behind stable interfaces; currency, tax and billing are out of scope.
 | Local stack breadth (≈15 containers by Week 3) slows development | Run modes and Compose profiles; `./dev.sh start` runs only what is asked |
 | Temporal workflows are code that must stay deterministic | Workflow tests on a Temporal dev server with stub activities; all I/O in activities; versioning before changing a running workflow |
 | Eventual consistency surprises (replicas, hold confirmation) | Documented windows; dispatch re-validates; e2e tests cover event paths |
-| Test depth below Phase 1 (≈700 tests then, 233 now) | Every feature lands with unit, workflow and e2e tests; coverage gate in Week 3 |
-| Contract drift between services before the Schema Registry | Additive-only payload changes; consumer tests; Avro in Week 3 |
+| Test depth below Phase 1 (≈700 tests then) | Every feature lands with unit, workflow and e2e tests; coverage gate in CI (`./dev.sh test --cov`) |
+| Contract drift between services | JSON Schema contracts checked on write and read; BACKWARD compatibility in the Schema Registry |
 
 ---
 
@@ -658,7 +749,7 @@ are mocks behind stable interfaces; currency, tax and billing are out of scope.
 |---|---|
 | **1** ✅ | Four services with isolated databases, platform library, outbox + Kafka, replicas, idempotency, state machine, gateway, unified Swagger, Compose, dev CLI, 115 tests |
 | **2** ✅ | Service accounts; courier service; orchestrator with `DispatchWorkflow` (saga) and `DeliveryWorkflow`; tracking service on MongoDB; PDF labels; Temporal + MongoDB in Compose; 233 tests ([build log](phase_2.md)) |
-| **3** | Schema Registry + Avro, dead-letter topic, Celery + RabbitMQ (hold sweeper, notifications), analytics service and the nine metrics, Prometheus + Grafana, trace context through Kafka, Redis token denylist |
+| **3** ✅ | Schema Registry (JSON Schema) and dead-letter topics with replay; Celery + RabbitMQ (hold sweeper, sends, nightly rebuild); notification and analytics services; Prometheus, alerts, Grafana; traces through Kafka, Celery and Temporal; Redis token denylist; CI with a coverage gate ([build log](phase_3.md)) |
 | **4** | Indexing consumer, document composition, embeddings, vector store, filtered retrieval |
 | **5** | LangGraph assistant, tools, SSE streaming, AI observability |
 

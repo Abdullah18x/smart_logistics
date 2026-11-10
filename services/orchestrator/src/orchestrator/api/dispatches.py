@@ -12,11 +12,12 @@ from temporalio.service import RPCError
 from orchestrator.config import settings
 from sl_platform.auth import Auth, Principal, TokenVerifier
 from sl_platform.errors import NotFoundError, UpstreamUnavailableError
+from sl_platform.revocation import TokenDenylist
 from sl_platform.roles import UserRole
 from sl_platform.schemas import Problem
 
 verifier = TokenVerifier.from_settings(settings)
-auth = Auth(verifier)
+auth = Auth(verifier, TokenDenylist.from_settings(settings))
 StaffPrincipal = Annotated[
     Principal,
     Depends(

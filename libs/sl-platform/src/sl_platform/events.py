@@ -5,9 +5,15 @@ aggregate id so every event about one shipment lands on one partition, in
 order. Payloads carry the full state a consumer needs (event-carried state
 transfer), so consumers never call back to the producer to "fill in" an event.
 
-Schema governance: the envelope is versioned (``version``) and validated with
-Pydantic on both sides. Registering these contracts in Confluent Schema
-Registry is the Week 3 Kafka milestone; the envelope does not change then.
+Schema governance: the envelope is validated with Pydantic on both sides, and
+each event type's payload has a JSON Schema contract registered in the Schema
+Registry (see ``contracts.py``); ``schema_id`` names the version it was written
+with.
+
+Failed events: a consumer that cannot handle an event after its retries (or
+receives one that breaks its contract) moves it to its own dead-letter topic,
+``dlq.<consumer>``. Replaying sends it to ``retry.<consumer>``, which only that
+consumer reads — the services that handled it fine never see it again.
 """
 
 from __future__ import annotations
@@ -29,6 +35,14 @@ class Topics:
     COURIER = "courier.events"
     TRACKING = "tracking.events"
 
+    @staticmethod
+    def dead_letters(consumer: str) -> str:
+        return f"dlq.{consumer}"
+
+    @staticmethod
+    def retry(consumer: str) -> str:
+        return f"retry.{consumer}"
+
 
 class EventEnvelope(BaseModel):
     event_id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -41,6 +55,8 @@ class EventEnvelope(BaseModel):
     payload: dict[str, Any]
     #: W3C trace context, so a trace continues through the broker.
     traceparent: str | None = None
+    #: The Schema Registry id of the payload's contract, stamped when published.
+    schema_id: int | None = None
 
     def to_bytes(self) -> bytes:
         return self.model_dump_json().encode()

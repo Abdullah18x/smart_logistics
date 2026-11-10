@@ -14,6 +14,7 @@ from sl_platform.config import ServiceSettings
 from sl_platform.db import Database
 from sl_platform.errors import install_error_handlers
 from sl_platform.logging_setup import configure_logging, request_id_var
+from sl_platform.metrics import Refresher, instrument_app, metrics_router, outbox_refresher
 from sl_platform.telemetry import setup_telemetry
 
 Hook = Callable[[], Awaitable[Any]]
@@ -71,6 +72,7 @@ def create_service_app(
     on_startup: Sequence[Hook] = (),
     on_shutdown: Sequence[Hook] = (),
     readiness_checks: dict[str, ReadinessCheck] | None = None,
+    metrics_refreshers: Sequence[Refresher] = (),
 ) -> FastAPI:
     configure_logging(settings.service_name, settings.log_level, settings.log_json)
 
@@ -103,8 +105,14 @@ def create_service_app(
         response.headers["X-Request-ID"] = value
         return response
 
+    instrument_app(app)
     install_error_handlers(app, constraint_messages)
     app.include_router(health_router(settings, database, readiness_checks))
+    refreshers = [
+        *([outbox_refresher(database)] if database is not None else []),
+        *metrics_refreshers,
+    ]
+    app.include_router(metrics_router(refreshers))
     for router in routers:
         app.include_router(router)
     setup_telemetry(

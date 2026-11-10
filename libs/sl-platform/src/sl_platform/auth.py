@@ -25,6 +25,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from sl_platform.config import ServiceSettings
 from sl_platform.errors import AuthenticationError, PermissionDeniedError, UpstreamUnavailableError
+from sl_platform.revocation import TokenDenylist
 from sl_platform.roles import UNRESTRICTED_ROLES, UserRole
 
 ACCESS_TOKEN_TYPE = "access"
@@ -41,6 +42,9 @@ class Principal:
     name: str | None = None
     #: The raw bearer token, forwarded when this request calls another service.
     token: str = field(default="", repr=False)
+    #: The token's id and expiry (unix seconds), to revoke exactly this token.
+    token_id: str | None = None
+    expires_at: int | None = None
 
     @property
     def is_admin(self) -> bool:
@@ -192,13 +196,16 @@ class Auth:
     enforces a role. Row scoping is the service's job, using ``Principal``.
     """
 
-    def __init__(self, verifier: TokenVerifier) -> None:
+    def __init__(self, verifier: TokenVerifier, denylist: TokenDenylist | None = None) -> None:
         self.verifier = verifier
+        self.denylist = denylist
 
     async def __call__(self, credentials: BearerCredentials) -> Principal:
         if credentials is None:
             raise AuthenticationError("Authorization header is missing.")
         claims = await self.verifier.verify(credentials.credentials)
+        if self.denylist is not None and await self.denylist.is_revoked(claims):
+            raise AuthenticationError("Token has been revoked.")
         try:
             return Principal(
                 user_id=uuid.UUID(claims["sub"]),
@@ -207,6 +214,8 @@ class Auth:
                 courier_id=uuid.UUID(claims["courier_id"]) if claims.get("courier_id") else None,
                 name=claims.get("name"),
                 token=credentials.credentials,
+                token_id=claims.get("jti"),
+                expires_at=claims.get("exp"),
             )
         except (ValueError, KeyError) as exc:
             raise AuthenticationError("Token claims are malformed.") from exc

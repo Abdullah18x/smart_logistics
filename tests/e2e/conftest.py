@@ -9,6 +9,9 @@ with a service-account token issued by Identity.
 Each service reads its settings when its modules are first imported, so the
 harness sets the environment, imports one service, and moves to the next.
 
+Week 3 adds Notification and Analytics as consumers on the same bus; the
+notification send step is recorded instead of queued on Celery.
+
 Needs: the PostgreSQL databases (``./dev.sh infra up``, or SL_PG_HOST for one
 server), MongoDB on MONGO_URL (default localhost:27017), and the Temporal CLI
 (downloaded by the SDK, or TEMPORAL_CLI_PATH).
@@ -27,7 +30,15 @@ from sl_platform.testing import generate_rsa_keypair, migrate, recreate_database
 ROOT = Path(__file__).resolve().parents[2]
 PRIVATE_PEM, PUBLIC_PEM = generate_rsa_keypair()
 #: Services with a PostgreSQL database.
-SERVICES = ("identity", "warehouse", "inventory", "shipment", "courier")
+SERVICES = (
+    "identity",
+    "warehouse",
+    "inventory",
+    "shipment",
+    "courier",
+    "analytics",
+    "notification",
+)
 #: Each service's Postgres as Docker Compose publishes it. Set SL_PG_HOST
 #: (e.g. ``localhost:5432``) to put every database on one server instead.
 PORTS = {
@@ -36,6 +47,8 @@ PORTS = {
     "inventory": 5443,
     "shipment": 5444,
     "courier": 5445,
+    "analytics": 5446,
+    "notification": 5447,
 }
 SERVICE_SECRET = "orchestrator-e2e-secret"
 
@@ -70,6 +83,8 @@ import pytest  # noqa: E402
 from temporalio.testing import WorkflowEnvironment  # noqa: E402
 from temporalio.worker import Worker  # noqa: E402
 
+from analytics.db import database as analytics_db  # noqa: E402
+from analytics.events import build_processor as analytics_processor  # noqa: E402
 from courier.db import database as courier_db  # noqa: E402
 from courier.events import build_processor as courier_processor  # noqa: E402
 from identity.api.deps import get_warehouse_client  # noqa: E402
@@ -77,6 +92,9 @@ from identity.db import database as identity_db  # noqa: E402
 from identity.events import build_processor as identity_processor  # noqa: E402
 from inventory.db import database as inventory_db  # noqa: E402
 from inventory.events import build_processor as inventory_processor  # noqa: E402
+from notification import queue as notification_queue  # noqa: E402
+from notification.db import database as notification_db  # noqa: E402
+from notification.events import build_processor as notification_processor  # noqa: E402
 from orchestrator.activities import DispatchActivities  # noqa: E402
 from orchestrator.config import Settings as OrchestratorSettings  # noqa: E402
 from orchestrator.trigger import handle as orchestrator_handle  # noqa: E402
@@ -103,6 +121,8 @@ DATABASES = {
     "inventory": inventory_db,
     "shipment": shipment_db,
     "courier": courier_db,
+    "analytics": analytics_db,
+    "notification": notification_db,
 }
 ORCHESTRATOR = OrchestratorSettings(
     task_queue="e2e",
@@ -124,6 +144,16 @@ def asgi(service: str) -> httpx.ASGITransport:
     return httpx.ASGITransport(app=apps[service])
 
 
+class RecordingQueue:
+    """Stands in for Celery: keeps the ids of notifications queued for sending."""
+
+    def __init__(self) -> None:
+        self.ids: list = []
+
+    async def enqueue(self, ids) -> None:
+        self.ids.extend(ids)
+
+
 class Platform:
     """Clients for each service, the event bus that stands in for Kafka, and
     the Temporal client the orchestrator uses."""
@@ -135,12 +165,16 @@ class Platform:
             for name in apps
         }
         self.bus = LocalEventBus()
+        self.notifications = RecordingQueue()
+        notification_queue.Holder.queue = self.notifications
         for processor in (
             identity_processor(identity_db.sessionmaker),
             inventory_processor(inventory_db.sessionmaker),
             shipment_processor(shipment_db.sessionmaker),
             courier_processor(courier_db.sessionmaker),
             tracking_processor(tracking_journeys),
+            notification_processor(notification_db.sessionmaker),
+            analytics_processor(analytics_db.sessionmaker),
             self._orchestrator_trigger(),
         ):
             self.bus.subscribe(processor)
