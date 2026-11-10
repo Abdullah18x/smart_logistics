@@ -104,8 +104,8 @@ They need the infrastructure from 1.2. The first run downloads the Temporal dev 
 - [ ] `test --cov`: every suite passes. Expected counts:
 
 ```
-sl-platform 57 · identity 45 · warehouse 17 · inventory 21 · shipment 40 · courier 29
-orchestrator 45 · tracking 20 · analytics 24 · notification 27 · e2e 12      = 337
+sl-platform 58 · identity 45 · warehouse 17 · inventory 21 · shipment 40 · courier 29
+orchestrator 46 · tracking 21 · analytics 24 · notification 27 · e2e 12      = 340
 ```
 
 - [ ] The last block is the coverage table, ending `TOTAL … NN.N%`, with no

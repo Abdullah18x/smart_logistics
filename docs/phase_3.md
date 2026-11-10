@@ -4,7 +4,7 @@
 **Result:** nine services. Every event has a registered contract and a dead-letter path with
 replay; customers, couriers and operations are notified on milestones; the nine analytics
 metrics are served from the event stream; background jobs run on Celery; every hop is
-measured, alerted on and traced end to end; sign-out takes effect immediately. 337 tests.
+measured, alerted on and traced end to end; sign-out takes effect immediately. 340 tests.
 
 Decisions taken before the build: **JSON Schema** (not Avro) in the Schema Registry,
 **Mailpit** for real SMTP with **mock SMS and push**, analytics as **incremental daily
@@ -84,15 +84,15 @@ a **DLQ replay CLI**, a **coverage gate in CI**. Load tests moved to Week 4.
 ## 5. Verification
 
 ```
-./dev.sh test     platform 57 · identity 45 · warehouse 17 · inventory 21 · shipment 40
-                  courier 29 · orchestrator 45 · tracking 20 · notification 27
-                  analytics 24 · e2e 12                                          = 337
+./dev.sh test     platform 58 · identity 45 · warehouse 17 · inventory 21 · shipment 40
+                  courier 29 · orchestrator 46 · tracking 21 · notification 27
+                  analytics 24 · e2e 12                                          = 340
 ./dev.sh check    ruff, format, import-linter (2 contracts kept), alembic check ×7
 ./dev.sh test --cov   combined line + branch coverage, gate 75 %
 ```
 
 Built in a sandbox without Docker Hub, Temporal or MongoDB: there, the platform and seven
-SQL services' suites passed (260 tests), lint and boundaries were clean, migrations went
+SQL services' suites and the orchestrator's unit tests passed (276 tests), lint and boundaries were clean, migrations went
 up, down and up again, the e2e suite collected, PromQL and Grafana SQL were checked, and
 coverage without the platform, tracking, orchestrator and e2e suites measured 78.8 %. The
 tracking, orchestrator and e2e suites, the full coverage figure and the trace in Jaeger are

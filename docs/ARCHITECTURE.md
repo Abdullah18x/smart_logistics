@@ -453,7 +453,7 @@ unauthenticated business route and returns the milestone timeline only.
 
 | Signal | What there is |
 |---|---|
-| Logs | Structured (JSON in Docker), one line per request with `request_id`; every line carries `trace_id` / `span_id` |
+| Logs | Structured (JSON in Docker), one line per request with `request_id`; every line carries `trace_id` / `span_id`; successful scrapes and probes (`/metrics`, `/health*`) are not logged |
 | Traces | OpenTelemetry to **Jaeger** (:16686): FastAPI, httpx, SQLAlchemy; `traceparent` stored with each outbox row and sent as a Kafka header; Celery tasks and Temporal workflows/activities continue the trace |
 | Metrics | **Prometheus** (:9090): RED per route template, outbox backlog age, consumer outcomes, handler time, end-to-end event lag, Kafka lag, dead letters, Celery tasks, Temporal SDK metrics, notifications, denylist and cache |
 | Alerts | 12 rules (`infra/prometheus/rules/alerts.yml`): targets down, 5xx rate, read/write p95 targets, outbox stuck, event lag, consumer lag, dead letters, registry outage, failing tasks, notifications, workflows |

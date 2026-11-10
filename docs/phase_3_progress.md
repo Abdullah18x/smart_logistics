@@ -124,6 +124,12 @@ Newest first. Each entry: what was done, files touched, test status.
   added (needs MongoDB; logic checked here against a fake collection).
 - `./dev.sh start` warns when a non-Docker process also listens on an infrastructure port (seen:
   a native MongoDB on the Mac shadowing the container, so wipes never reached tracking's data).
+- Docker's MongoDB published on **27018** (27017 left to a local MongoDB): compose, dev.py,
+  tracking default, tests, docs.
+- Docs caught up with the fixes: test counts 340 (phase_3.md, test guide, documentation guide +
+  PDF); ADR-019 (node names), ADR-022 (FastAPI native telemetry off, SQLAlchemy 2.1, quiet access
+  log), ADR-015 (retry topics pre-created); ARCHITECTURE §11 logs; README "Browsing the data"
+  (ports per database) and a troubleshooting entry for local databases on the default ports.
 
 ### 2026-11-10 — Week 3 docs complete
 - New: `docs/phase_3.md`, `docs/manual-test-week3.md`, ADR-019 (Celery), 020 (notification),

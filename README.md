@@ -209,6 +209,19 @@ per service. Authorize once and the token is kept as you switch services.
 | http://localhost:8081/subjects | Schema Registry: the registered event contracts |
 | `docker compose --profile tools up -d kafka-ui` → :8090 | Kafka UI |
 
+### Browsing the data
+
+Each service has its own database; connect a client (DBeaver, TablePlus, psql) to the one you
+need. Host `localhost`; database, user and password are all the service name; tables in `public`.
+
+| identity | warehouse | inventory | shipment | courier | analytics | notification | tracking (MongoDB) |
+|---|---|---|---|---|---|---|---|
+| 5441 | 5442 | 5443 | 5444 | 5445 | 5446 | 5447 | 27018, database `tracking` |
+
+These are Docker's ports on purpose: a PostgreSQL or MongoDB installed on your machine keeps
+5432 / 27017 (the Phase 1 monolith's single `smartlogistics` database usually lives there).
+Databases ending in `_test` / `_e2e_test` are recreated by every test run.
+
 Seeded accounts (password `SmartLogistics!2026`): `admin@`, `support.lead@`,
 `wh.karachi@`, `wh.lahore@`, `wh.regional@`, `courier.one@` … `courier.four@`
 `@transfleet.com`. Couriers CR-0001/CR-0003 (Karachi) and CR-0002 (Lahore) are available.
@@ -314,6 +327,10 @@ You normally set none of them: the defaults point at the Compose ports, and
 - **An event "disappeared"** — check `./dev.sh dlq list`; fix the cause and replay it.
 - **Grafana panels are empty** — Prometheus scrapes the processes `./dev.sh start` runs;
   check http://localhost:9090/targets.
+- **Data looks old or ids don't match** — you are probably looking at a database installed on
+  your machine (5432 / 27017) rather than Docker's (5441–5447 / 27018); see
+  [Browsing the data](#browsing-the-data). `./dev.sh start` warns when something other than
+  Docker also listens on an infrastructure port.
 - **Want a clean slate** — `./dev.sh reset` (local) or `./dev.sh docker down -v`.
 
 ## Repository layout

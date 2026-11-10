@@ -30,6 +30,13 @@ Kafka, a Celery task or a Temporal activity lost its trace, and nothing was meas
   trace of whoever queued them; Temporal's `TracingInterceptor` carries it into workflows and
   activities. Log lines carry `trace_id`/`span_id`.
 
+- **Our wiring, not the framework's.** FastAPI 0.142+ configures its own OpenTelemetry from
+  `OTEL_EXPORTER_OTLP_ENDPOINT`; it is switched off (it duplicated request spans and pushed OTLP
+  metrics to Jaeger, which rejects them). SQLAlchemy 2.1 is instrumented with the version check
+  skipped (the instrumentation declares < 2.1 but uses only the stable event API).
+- **Quiet access logs.** Successful `/metrics` scrapes and `/health*` probes are not logged
+  (every 10 s per process); a failing one still is.
+
 ## Consequences
 
 - One trace shows HTTP → outbox → Kafka → consumer → Temporal activity → HTTP.

@@ -25,6 +25,8 @@ multi-step dispatch saga.
 - **One process per Celery worker** (`--pool=solo`): tasks share the process's event loop
   and database engine (`run_async`), and its metrics are served from that same process.
   Throughput scales with more worker containers, not with forked children.
+- **A node name per service** (`-n <service>@%h`): Celery's default `celery@<host>` is the
+  same for every worker on a machine, and RabbitMQ lets only one hold a name's control queue.
 - **Beat** runs inside the service's Celery worker (`-B`): notification `requeue-overdue`
   (60 s), inventory `release-expired-holds` (300 s), analytics `nightly-recompute` (02:17 UTC).
 - **Which tool for what**: Kafka consumers react to facts; Celery runs jobs (retries,

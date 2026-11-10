@@ -48,7 +48,8 @@ message is unreadable, or the payload breaks its contract — publishes the orig
 `dlq.<consumer>` with headers saying why, then commits its offset so the partition keeps
 moving. `./dev.sh dlq list` shows them; `./dev.sh dlq replay <consumer>` sends them to
 `retry.<consumer>`, a topic only that consumer reads, so services that handled the event the
-first time are not involved. Consumer dedupe makes a repeated replay harmless.
+first time are not involved. Consumer dedupe makes a repeated replay harmless. Each consumer
+creates its retry topic before subscribing, so a replay is picked up immediately.
 
 The Schema Registry is optional at runtime (unset `SCHEMA_REGISTRY_URL`): tests and a minimal
 local setup still validate every staged event against its local contract.
