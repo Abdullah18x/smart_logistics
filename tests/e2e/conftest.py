@@ -13,7 +13,7 @@ Week 3 adds Notification and Analytics as consumers on the same bus; the
 notification send step is recorded instead of queued on Celery.
 
 Needs: the PostgreSQL databases (``./dev.sh infra up``, or SL_PG_HOST for one
-server), MongoDB on MONGO_URL (default localhost:27017), and the Temporal CLI
+server), MongoDB on MONGO_URL (default localhost:27018), and the Temporal CLI
 (downloaded by the SDK, or TEMPORAL_CLI_PATH).
 """
 
@@ -65,7 +65,7 @@ os.environ.update(
     SERVICE_CLIENTS=json.dumps({"orchestrator": SERVICE_SECRET}),
     MONGO_DATABASE="tracking_e2e_test",
 )
-os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27018")
 os.environ.pop("JWKS_URL", None)
 apps = {}
 for service in SERVICES:

@@ -21,7 +21,7 @@ Local development (services on your machine, infrastructure in Docker):
     status                    health of every service on 8001-8007
     docs                      regenerate docs/curl (OpenAPI, Postman, curl) and
                               docs/database.md from the code
-    reset                     migrate --down, migrate, seed
+    reset                     migrate --down, migrate, clear tracking's MongoDB, seed
 
 Everything in Docker:
 
@@ -64,6 +64,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 IS_WINDOWS = os.name == "nt"
+MONGO_PORT = int(os.environ.get("MONGO_PORT", "27018"))
 
 #: name -> (API port, Postgres port published by Docker Compose, or None)
 SERVICES: dict[str, tuple[int, int | None]] = {
@@ -128,6 +129,8 @@ COLORS = {
     "courier": 34,
     "orchestrator": 91,
     "tracking": 96,
+    "analytics": 93,
+    "notification": 95,
 }
 
 
@@ -174,7 +177,7 @@ def service_env(service: str) -> dict[str, str]:
         "KAFKA_BOOTSTRAP_SERVERS": os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092"),
         "JWKS_URL": f"{api_url('identity')}/.well-known/jwks.json",
         "TEMPORAL_ADDRESS": os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"),
-        "MONGO_URL": os.environ.get("MONGO_URL", "mongodb://localhost:27017"),
+        "MONGO_URL": os.environ.get("MONGO_URL", f"mongodb://localhost:{MONGO_PORT}"),
         "CELERY_BROKER_URL": os.environ.get(
             "CELERY_BROKER_URL", "amqp://guest:guest@localhost:5672//"
         ),
@@ -313,11 +316,44 @@ def cmd_seed(_: argparse.Namespace) -> None:
     say("seeded. Log in as admin@transfleet.com / SmartLogistics!2026")
 
 
+#: Drops tracking's MongoDB database (its indexes are recreated when tracking starts).
+_DROP_TRACKING = """
+import asyncio
+from pymongo import AsyncMongoClient
+from tracking.config import settings
+
+async def main():
+    client = AsyncMongoClient(settings.mongo_url, serverSelectionTimeoutMS=3000)
+    try:
+        await client.drop_database(settings.mongo_database)
+    finally:
+        await client.close()
+
+asyncio.run(main())
+"""
+
+
 def cmd_reset(args: argparse.Namespace) -> None:
+    """Every store back to the seed data: the SQL databases *and* tracking's
+    MongoDB, which would otherwise keep journeys whose reference numbers the
+    re-seeded shipments reuse."""
     args.services, args.down = None, True
     cmd_migrate(args)
     args.down = False
     cmd_migrate(args)
+    say("tracking: dropping its MongoDB database")
+    result = subprocess.run(
+        [PYTHON, "-c", _DROP_TRACKING],
+        cwd=ROOT / "services" / "tracking",
+        env=service_env("tracking"),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            "\033[33mwarning:\033[0m couldn't reach MongoDB; tracking keeps its old journeys "
+            "(./dev.sh infra up, then reset again)."
+        )
     cmd_seed(args)
 
 
@@ -383,10 +419,29 @@ def _containers_publishing(port: int) -> list[str]:
     return [name for name in out.split() if name]
 
 
-def check_ports(services: list[str]) -> None:
-    """Refuse to start anything when an API port is taken, and say who holds it:
-    the Docker stack's containers, or a server left behind by an earlier run."""
+def _metrics_ports(services: list[str]) -> list[tuple[str, int]]:
+    """The metrics ports the workers will bind: a leftover worker from an earlier
+    run holds its port (and its Kafka group, its Celery mailbox) long after its
+    API is gone, so these are checked too."""
+    ports = []
+    for service in services:
+        if service in WORKERS:
+            ports.append((f"{service}-worker", int(process_env(service, "worker")["METRICS_PORT"])))
+        if service in CELERY_SERVICES:
+            ports.append((f"{service}-celery", int(process_env(service, "celery")["METRICS_PORT"])))
+        if service == "orchestrator":
+            ports.append(("orchestrator-worker (Temporal SDK)", 9306))
+    return ports
+
+
+def check_ports(services: list[str], workers: bool = True) -> None:
+    """Refuse to start anything when an API or worker port is taken, and say who
+    holds it: the Docker stack's containers, or a process left behind by an
+    earlier run."""
     busy = [(s, SERVICES[s][0]) for s in services if not _port_free(BIND_HOST, SERVICES[s][0])]
+    if workers:
+        busy += [(name, port) for name, port in _metrics_ports(services)
+                 if not _port_free("0.0.0.0", port)]  # fmt: skip
     if not busy:
         return
     lines, pids, containers = [], [], []
@@ -427,6 +482,33 @@ def check_ports(services: list[str]) -> None:
     )
 
 
+#: Processes that publish container ports on the host (Docker Desktop, Linux, Podman).
+_DOCKER_PROCESSES = ("com.docke", "com.docker", "docker", "vpnkit", "docker-proxy", "gvproxy")
+
+
+def warn_foreign_listeners(services: list[str]) -> None:
+    """Warn when something other than Docker also listens on an infrastructure
+    port, e.g. a MongoDB or PostgreSQL installed on the machine: connections to
+    localhost then reach it instead of the container, so resets and wipes of the
+    Docker volumes never touch the data the services actually use."""
+    ports = {"MongoDB": MONGO_PORT, "Kafka": 29092, "Temporal": 7233, "Redis": 6379,
+             "RabbitMQ": 5672, "Schema Registry": 8081}  # fmt: skip
+    ports.update({f"{s}-db": SERVICES[s][1] for s in services if s in DB_SERVICES})
+    if os.environ.get("SL_PG_HOST"):  # one shared Postgres on purpose
+        ports = {k: v for k, v in ports.items() if not k.endswith("-db")}
+    for name, port in ports.items():
+        foreign = [(pid, cmd) for pid, cmd in _listeners(port)
+                   if not cmd.lower().startswith(_DOCKER_PROCESSES)]  # fmt: skip
+        if foreign:
+            who = ", ".join(f"{cmd or '?'} (PID {pid})" for pid, cmd in foreign)
+            print(
+                f"\033[33mwarning:\033[0m :{port} ({name}) is also held by {who}, not only "
+                "Docker. The services may be talking to that one, so wiping or resetting "
+                "Docker's data won't affect what they see. Stop it, or point the services at "
+                "the container."
+            )
+
+
 def check_infra(services: list[str], workers: bool) -> None:
     """Fail fast, with the fix, when the Docker infrastructure isn't running."""
     missing = []
@@ -445,7 +527,7 @@ def check_infra(services: list[str], workers: bool) -> None:
         )
     needs = [
         ("orchestrator", ("Temporal", 7233)),
-        ("tracking", ("MongoDB", 27017)),
+        ("tracking", ("MongoDB", MONGO_PORT)),
         *((s, ("RabbitMQ", 5672)) for s in CELERY_SERVICES if workers),
     ]
     warned: set[str] = set()
@@ -468,8 +550,9 @@ def check_infra(services: list[str], workers: bool) -> None:
 
 def cmd_start(args: argparse.Namespace) -> None:
     services = pick(args.services)
-    check_ports(services)
+    check_ports(services, workers=not args.no_workers)
     check_infra(services, workers=not args.no_workers)
+    warn_foreign_listeners(services)
 
     def interrupt(*_: object) -> None:
         raise KeyboardInterrupt
@@ -508,58 +591,69 @@ def cmd_start(args: argparse.Namespace) -> None:
         )
         processes.append((name, proc))
         threading.Thread(
-            target=_pump, args=(name, proc.stdout, COLORS[service]), daemon=True
+            target=_pump, args=(name, proc.stdout, COLORS.get(service, 37)), daemon=True
         ).start()
 
-    # Identity first, so the others find the JWKS endpoint when they warm up.
-    for service in sorted(services, key=lambda s: s != "identity"):
-        port = SERVICES[service][0]
-        api = [
-            PYTHON, "-m", "uvicorn", f"{service}.main:app",
-            "--host", BIND_HOST, "--port", str(port),
-        ]  # fmt: skip
-        if args.reload:
-            api += [
-                "--reload",
-                "--reload-dir",
-                str(ROOT / "services" / service / "src"),
-                "--reload-dir",
-                str(ROOT / "libs" / "sl-platform" / "src"),
-            ]
-        launch(service, api, service)
-        if service == "identity":
-            time.sleep(1.5)
-        if args.no_workers:
-            continue
-        if service in WORKERS:
-            launch(
-                f"{service}-worker",
-                [PYTHON, "-m", f"{service}.worker"],
-                service,
-                extra_env=process_env(service, "worker"),
-            )
-        if service in CELERY_SERVICES:
-            beat_file = ROOT / ".dev" / f"celerybeat-{service}"
-            beat_file.parent.mkdir(exist_ok=True)
-            launch(
-                f"{service}-celery",
-                [
-                    PYTHON, "-m", "celery", "-A", f"{service}.tasks", "worker",
-                    "--pool=solo", "-Q", service, "-B", "-s", str(beat_file),
-                    "--loglevel=INFO",
-                ],
-                service,
-                extra_env=process_env(service, "celery"),
-            )  # fmt: skip
+    def launch_all() -> None:
+        # Identity first, so the others find the JWKS endpoint when they warm up.
+        for service in sorted(services, key=lambda s: s != "identity"):
+            port = SERVICES[service][0]
+            api = [
+                PYTHON, "-m", "uvicorn", f"{service}.main:app",
+                "--host", BIND_HOST, "--port", str(port),
+            ]  # fmt: skip
+            if args.reload:
+                api += [
+                    "--reload",
+                    "--reload-dir",
+                    str(ROOT / "services" / service / "src"),
+                    "--reload-dir",
+                    str(ROOT / "libs" / "sl-platform" / "src"),
+                ]
+            launch(service, api, service)
+            if service == "identity":
+                time.sleep(1.5)
+            if args.no_workers:
+                continue
+            if service in WORKERS:
+                launch(
+                    f"{service}-worker",
+                    [PYTHON, "-m", f"{service}.worker"],
+                    service,
+                    extra_env=process_env(service, "worker"),
+                )
+            if service in CELERY_SERVICES:
+                beat_file = ROOT / ".dev" / f"celerybeat-{service}"
+                beat_file.parent.mkdir(exist_ok=True)
+                launch(
+                    f"{service}-celery",
+                    [
+                        PYTHON, "-m", "celery", "-A", f"{service}.tasks:celery_app", "worker",
+                        "--pool=solo", "-Q", service, "-B", "-s", str(beat_file),
+                        # A node name per service: Celery's default, celery@<host>,
+                        # is the same for all three, and RabbitMQ lets only one
+                        # worker hold a name's control queue.
+                        "-n", f"{service}@%h",
+                        "--loglevel=INFO",
+                    ],
+                    service,
+                    extra_env=process_env(service, "celery"),
+                )  # fmt: skip
 
-    say(
-        "running: "
-        + ", ".join(f"{s} :{SERVICES[s][0]}" for s in services)
-        + (" (+ workers)" if not args.no_workers else "")
-        + " — Ctrl+C to stop"
-    )
-    say("gateway http://localhost:8000 · Swagger UI for every service http://localhost:8000/docs")
+        say(
+            "running: "
+            + ", ".join(f"{s} :{SERVICES[s][0]}" for s in services)
+            + (" (+ workers)" if not args.no_workers else "")
+            + " — Ctrl+C to stop"
+        )
+        say(
+            "gateway http://localhost:8000 · Swagger UI for every service http://localhost:8000/docs"
+        )
+
     try:
+        # Inside the try: if launching fails half-way, whatever already
+        # started is stopped by the finally below instead of left running.
+        launch_all()
         while True:
             for name, proc in processes:
                 if proc.poll() is not None:
@@ -570,6 +664,11 @@ def cmd_start(args: argparse.Namespace) -> None:
     except RuntimeError as exc:
         print(f"\033[31m{exc}\033[0m — stopping the rest")
     finally:
+        # A second Ctrl+C (or the one uv forwards) must not cut the clean-up short
+        # and leave servers holding their ports.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        if not IS_WINDOWS:
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
         for _, proc in processes:
             _signal_group(proc, signal.SIGTERM)
         deadline = time.time() + 10

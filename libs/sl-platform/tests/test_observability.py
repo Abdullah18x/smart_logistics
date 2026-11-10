@@ -269,3 +269,23 @@ class TestCelery:
         assert sample("celery_tasks_total", {"task": name, "outcome": "succeeded"}) == 1
         assert sample("celery_tasks_total", {"task": name, "outcome": "failed"}) == 1
         assert sample("celery_task_duration_seconds_count", {"task": name}) == 2
+
+
+def test_scrapes_and_probes_are_kept_out_of_the_access_log():
+    import logging
+
+    from sl_platform.logging_setup import QuietPathsFilter
+
+    quiet = QuietPathsFilter()
+
+    def record(path: str, status: int) -> logging.LogRecord:
+        return logging.LogRecord(
+            "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+            ("127.0.0.1:5000", "GET", path, "1.1", status), None,
+        )  # fmt: skip
+
+    assert not quiet.filter(record("/metrics", 200))
+    assert not quiet.filter(record("/health/ready", 200))
+    assert quiet.filter(record("/health/ready", 503))  # a failing probe is still shown
+    assert quiet.filter(record("/api/v1/shipments", 200))
+    assert quiet.filter(record("/metrics-review", 200))

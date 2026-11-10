@@ -454,6 +454,7 @@ As admin or support:
 | Symptom | Check |
 |---|---|
 | No email at all | Is `notification-celery` running and RabbitMQ up? Rows wait as `pending` and send once it's back |
+| Dispatch fails with `reference_in_use` right after a wipe | Tracking is reading a MongoDB the wipe didn't touch. Docker's MongoDB is on **27018** (27017 is left to any MongoDB on your Mac); check `MONGO_URL` isn't set to 27017 in your shell or `.env` |
 | Messages for old shipments arrive | Kafka still had Week 2 events: redo Part 1 with `docker down -v` |
 | `/summary` stays at 0 | Is `analytics-worker` running? The 30 s cache. `./dev.sh status` |
 | Grafana panels empty | http://localhost:9090/targets; Business KPIs reads `analytics-db` directly |

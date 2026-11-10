@@ -174,15 +174,22 @@ def outbox_refresher(database: Any) -> Refresher:
     return refresh_outbox
 
 
+_serving: set[int] = set()
+
+
 def serve_metrics(port: int | None) -> bool:
     """Start the Prometheus endpoint of a process without HTTP. Returns False
-    when no port is configured (tests, one-off scripts)."""
+    when no port is configured (tests, one-off scripts). Calling it again for the
+    same port is a no-op (Celery fires more than one start-up signal)."""
     if not port:
         return False
+    if port in _serving:
+        return True
     try:
         start_http_server(port)
     except OSError as exc:  # usually: another copy of this process holds the port
         logger.warning("metrics endpoint on :%s not started: %s", port, exc)
         return False
+    _serving.add(port)
     logger.info("metrics on :%s/metrics", port)
     return True

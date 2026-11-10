@@ -171,6 +171,7 @@ class KafkaConsumerRunner:
 
         async def connect() -> None:
             nonlocal consumer
+            await ensure_topics(self.bootstrap_servers, [Topics.retry(self.processor.name)])
             candidate = AIOKafkaConsumer(
                 *self.topics,
                 bootstrap_servers=self.bootstrap_servers,
@@ -209,6 +210,33 @@ class KafkaConsumerRunner:
                 await record_lag(consumer, self.processor.name)
         finally:
             await consumer.stop()
+
+
+async def ensure_topics(bootstrap_servers: str, topics: list[str]) -> None:
+    """Create topics a consumer subscribes to before anyone has written to them
+    (its retry topic), so it is assigned their partitions straight away instead
+    of logging "not found" and noticing them on a later metadata refresh. Best
+    effort: the broker also creates topics on first write."""
+    try:
+        from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+        from aiokafka.errors import TopicAlreadyExistsError
+    except ImportError:
+        return
+    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
+    try:
+        await admin.start()
+        existing = set(await admin.list_topics())
+        missing = [t for t in topics if t not in existing]
+        if missing:
+            await admin.create_topics(
+                [NewTopic(name=t, num_partitions=1, replication_factor=1) for t in missing]
+            )
+    except TopicAlreadyExistsError:
+        pass
+    except Exception as exc:
+        logger.debug("could not pre-create %s: %s", topics, exc)
+    finally:
+        await admin.close()
 
 
 async def receive(

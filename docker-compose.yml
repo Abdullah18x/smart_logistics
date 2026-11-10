@@ -112,7 +112,7 @@ services:
     image: mongo:7.0
     restart: unless-stopped
     mem_limit: 512m
-    ports: ["${MONGO_PORT:-27017}:27017"]
+    ports: ["${MONGO_PORT:-27018}:27017"]  # 27018 on the host: 27017 is often a local MongoDB
     volumes: [mongo-data:/data/db]
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
@@ -471,7 +471,7 @@ services:
   inventory-celery:
     image: smartlogistics/inventory:${IMAGE_TAG:-local}
     restart: unless-stopped
-    command: ["celery", "-A", "inventory.tasks:celery_app", "worker", "-B", "-Q", "inventory",
+    command: ["celery", "-A", "inventory.tasks:celery_app", "worker", "--pool=solo", "-n", "inventory@%h", "-B", "-Q", "inventory",
               "--loglevel=INFO", "-s", "/tmp/celerybeat-schedule"]
     environment:
       <<: [*common-env, *verifier-env]
@@ -591,7 +591,7 @@ services:
   notification-celery:
     image: smartlogistics/notification:${IMAGE_TAG:-local}
     restart: unless-stopped
-    command: ["celery", "-A", "notification.tasks:celery_app", "worker", "-B", "-Q", "notification",
+    command: ["celery", "-A", "notification.tasks:celery_app", "worker", "--pool=solo", "-n", "notification@%h", "-B", "-Q", "notification",
               "--loglevel=INFO", "-s", "/tmp/celerybeat-schedule"]
     environment:
       <<: *notification-env
@@ -639,7 +639,7 @@ services:
   analytics-celery:
     image: smartlogistics/analytics:${IMAGE_TAG:-local}
     restart: unless-stopped
-    command: ["celery", "-A", "analytics.tasks:celery_app", "worker", "-B", "-Q", "analytics",
+    command: ["celery", "-A", "analytics.tasks:celery_app", "worker", "--pool=solo", "-n", "analytics@%h", "-B", "-Q", "analytics",
               "--loglevel=INFO", "-s", "/tmp/celerybeat-schedule"]
     environment:
       <<: *analytics-env

@@ -166,7 +166,7 @@ consumers), built from the same image and scaled separately. Services with backg
 | **shipment** | 8004 | shipment-db :5444 | Shipments, items, packages, PDF labels, addresses, status history, warehouse replica | `shipment.*` incl. `dispatch_requested` | `warehouse.*`, `courier.assigned` / `unassigned` | inventory (reserve, release) |
 | **courier** | 8005 | courier-db :5445 | Couriers, assignments, warehouse replica | `courier.*` incl. `assigned` / `unassigned` / `availability_changed` | `warehouse.*`, `shipment.status_changed` (complete / release assignments) | — |
 | **orchestrator** | 8006 | — (state in Temporal) | `DispatchWorkflow`, `DeliveryWorkflow`, workflow progress API | — | `shipment.dispatch_requested`, `tracking.milestone_recorded` | shipment, inventory, courier, tracking (as `system`) |
-| **tracking** | 8007 | MongoDB :27017 | Journeys, field updates (each its own outbox entry) | `tracking.milestone_recorded` | `courier.assigned`, `shipment.status_changed` (returns) | — |
+| **tracking** | 8007 | MongoDB :27018 | Journeys, field updates (each its own outbox entry) | `tracking.milestone_recorded` | `courier.assigned`, `shipment.status_changed` (returns) | — |
 | **analytics** | 8008 | analytics-db :5446 | Milestone facts, shipment state, daily rollups, courier load, pipeline issues | — | `shipment.*`, `courier.*`, every `dlq.*` topic | — |
 | **notification** | 8009 | notification-db :5447 | Delivery log, suppressions, recipient and courier contacts | — | `shipment.created` / `status_changed`, `courier.*` | SMTP (Mailpit), mock SMS / push |
 
@@ -628,7 +628,7 @@ integrates through Kafka and read-only queries.
 | Celery workers (+ beat) | metrics 9100 / 92NN | inventory, analytics, notification |
 | PostgreSQL ×7 | 5441–5447 | One container and volume per service |
 | Temporal · Temporal UI | 7233 · 8233 | Its own PostgreSQL (`temporal-db`) |
-| MongoDB | 27017 | Tracking |
+| MongoDB | 27018 (host) / 27017 (containers) | Tracking; 27018 so a MongoDB installed on the machine keeps 27017 |
 | Kafka (KRaft) | 29092 (host) / 9092 (containers) | Kafka UI on 8090 with `--profile tools` |
 | Jaeger | 16686 | OTLP on 4318 |
 | Schema Registry | 8081 | Confluent, JSON Schema, BACKWARD |

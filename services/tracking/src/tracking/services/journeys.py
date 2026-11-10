@@ -39,6 +39,14 @@ class JourneyClosedError(ConflictError):
     code = "journey_closed"
 
 
+class ReferenceInUseError(ConflictError):
+    """Another shipment's journey already has this reference number. Shipments
+    never share one, so the tracking store is out of step with the shipment
+    database (typically: SQL databases reset, MongoDB kept)."""
+
+    code = "reference_in_use"
+
+
 class InvalidUpdateError(DomainError):
     status_code = 422
     code = "invalid_update"
@@ -96,8 +104,20 @@ class JourneyService:
         }
         try:
             await self.store.journeys.insert_one(journey)
-        except DuplicateKeyError:  # a concurrent open won
-            return await self.store.journeys.find_one({"_id": sid}), False
+        except DuplicateKeyError:
+            # Either a concurrent open for this shipment won (same _id), or the
+            # reference number belongs to another shipment's journey.
+            existing = await self.store.journeys.find_one({"_id": sid})
+            if existing is not None:
+                return existing, False
+            other = await self.store.journeys.find_one(
+                {"reference_no": data.reference_no}, {"_id": 1}
+            )
+            raise ReferenceInUseError(
+                f"Reference {data.reference_no} already has a journey, for shipment "
+                f"{other['_id'] if other else 'unknown'}. The tracking store is out of step "
+                "with the shipment database; ./dev.sh reset clears both."
+            ) from None
         await self._record_system_event(
             event_id=uuid.uuid5(uuid.NAMESPACE_URL, f"journey-opened:{sid}:{at.isoformat()}"),
             shipment_id=sid,

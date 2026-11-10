@@ -134,7 +134,7 @@ One developer CLI does everything, on every OS.
 
 **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/)
 (it installs Python for you) and Docker Desktop, or Docker Engine with the Compose
-plugin. Free ports: 5441–5447, 7233, 8233, 27017, 29092, 16686, 5672/15672, 6379,
+plugin. Free ports: 5441–5447, 7233, 8233, 27018, 29092, 16686, 5672/15672, 6379,
 8081, 9090, 3000, 1025/8025, and 8001–8009 (option A) or 8000/8080 (option B).
 
 | macOS / Linux | Windows PowerShell | Windows cmd |
@@ -250,7 +250,7 @@ of `identity warehouse inventory shipment courier orchestrator tracking analytic
 | `migrate [svc ...]` | `alembic upgrade head` per SQL service | `make migrate s="shipment"` |
 | `migrate --down [svc ...]` | roll every migration back | — |
 | `seed` | seed warehouse → identity → inventory → courier | `make seed` |
-| `reset` | migrate down, migrate up, seed | `make reset` |
+| `reset` | migrate down, migrate up, clear tracking's MongoDB, seed | `make reset` |
 | `start [svc ...]` | APIs on 8001–8009 + workers + Celery workers (with beat); `--reload`, `--no-workers` | `make start s=shipment` |
 | `status` | `/health` of every service | `make status` |
 | `docs` | regenerate `docs/curl` and `docs/database.md` from the code | `make docs` |
@@ -277,7 +277,8 @@ You normally set none of them: the defaults point at the Compose ports, and
 | `TEMPORAL_ADDRESS` / `TASK_QUEUE` | orchestrator | `localhost:7233` / `smartlogistics-dispatch` |
 | `COURIER_WAIT_ATTEMPTS` / `COURIER_WAIT_SECONDS` | orchestrator | look for a courier 5 times, 60 s apart, before failing the dispatch |
 | `PICKUP_TIMEOUT_SECONDS` / `MAX_DELIVERY_ATTEMPTS` | orchestrator | reassign after this long without pickup / return after this many failures |
-| `MONGO_URL` / `MONGO_DATABASE` | tracking | `mongodb://localhost:27017` / `tracking` |
+| `MONGO_URL` / `MONGO_DATABASE` | tracking | `mongodb://localhost:27018` / `tracking` (Docker's MongoDB; 27018 leaves 27017 to a local MongoDB) |
+| `MONGO_PORT` | Compose, dev CLI | `27018`: where Docker publishes MongoDB on your machine |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | every service | unset = no tracing export (`./dev.sh start` sets Jaeger; `SL_TRACING=off`) |
 | `SCHEMA_REGISTRY_URL` | every service | unset = contracts checked locally only (`SL_SCHEMA_REGISTRY=off`) |
 | `REDIS_URL` / `DENYLIST_FAIL_CLOSED` | every service | unset = no denylist or cache (`SL_REDIS=off`) / refuse tokens while Redis is down |

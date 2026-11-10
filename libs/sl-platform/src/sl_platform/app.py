@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
@@ -16,6 +17,25 @@ from sl_platform.errors import install_error_handlers
 from sl_platform.logging_setup import configure_logging, request_id_var
 from sl_platform.metrics import Refresher, instrument_app, metrics_router, outbox_refresher
 from sl_platform.telemetry import setup_telemetry
+
+#: FastAPI >= 0.142 adds its own OpenTelemetry layer, configured from
+#: OTEL_EXPORTER_OTLP_ENDPOINT: it would duplicate our request spans and push
+#: OTLP metrics to Jaeger (which rejects them). Tracing is wired explicitly in
+#: ``telemetry.py`` and metrics go to Prometheus, so it is switched off.
+_NO_NATIVE_TELEMETRY: dict[str, Any] = (
+    {
+        "telemetry": {
+            "tracing": False,
+            "metrics": False,
+            "logs": False,
+            "operation_spans": False,
+            "auto_configure": False,
+        }
+    }
+    if "telemetry" in inspect.signature(FastAPI.__init__).parameters
+    else {}
+)
+
 
 Hook = Callable[[], Awaitable[Any]]
 
@@ -92,6 +112,7 @@ def create_service_app(
         version="0.2.0",
         openapi_tags=[*(tags_metadata or []), {"name": "Health", "description": "Probes."}],
         lifespan=lifespan,
+        **_NO_NATIVE_TELEMETRY,
     )
 
     @app.middleware("http")

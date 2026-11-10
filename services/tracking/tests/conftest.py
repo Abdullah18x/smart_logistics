@@ -15,7 +15,7 @@ os.environ.update(
     LOG_JSON="false",
     MONGO_DATABASE="tracking_test",
 )
-os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27018")
 os.environ.pop("JWKS_URL", None)
 
 import httpx  # noqa: E402

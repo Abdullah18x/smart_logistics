@@ -52,9 +52,34 @@ class TextFormatter(logging.Formatter):
         return line
 
 
+#: Paths polled by machines, not people: Prometheus scrapes /metrics every 10 s and
+#: Docker / the gateway probe /health. Their access-log lines would drown the rest.
+QUIET_PATHS = ("/metrics", "/health", "/health/ready")
+
+
+class QuietPathsFilter(logging.Filter):
+    """Drops uvicorn access-log lines for ``QUIET_PATHS`` that succeeded; a failing
+    probe or scrape (status >= 400) is still logged."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn.access: (client, method, path, http_version, status_code)
+        if not isinstance(args, tuple) or len(args) < 5:
+            return True
+        path = str(args[2]).split("?", 1)[0]
+        try:
+            status = int(args[4])
+        except (TypeError, ValueError):
+            return True
+        return not (path in QUIET_PATHS and status < 400)
+
+
 def configure_logging(service: str, level: str = "INFO", as_json: bool = True) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter(service) if as_json else TextFormatter(service))
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level)
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, QuietPathsFilter) for f in access.filters):
+        access.addFilter(QuietPathsFilter())

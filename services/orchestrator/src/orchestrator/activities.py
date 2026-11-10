@@ -13,6 +13,8 @@ Each one calls a service over HTTP as the orchestrator's service account
 
 from __future__ import annotations
 
+from typing import NoReturn
+
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -33,10 +35,18 @@ from sl_platform.http import ServiceClient
 RETRYABLE_CODES = frozenset({"concurrent_update", "request_in_progress"})
 
 
-def business_error(error: RemoteError) -> Exception:
+def raise_for(error: RemoteError) -> NoReturn:
+    """Raise what an activity should for a service's error response.
+
+    Retryable (5xx, a concurrent update) re-raises the error itself, so Temporal
+    retries the activity. Anything else is a business "no": a non-retryable
+    ``ApplicationError`` with the service's code, caused by the original. (Never
+    ``raise error from error``: an exception that is its own cause sends Temporal's
+    failure converter into infinite recursion.)
+    """
     if error.status_code >= 500 or error.code in RETRYABLE_CODES:
-        return error  # Temporal retries plain exceptions
-    return ApplicationError(str(error), type=error.code, non_retryable=True)
+        raise error
+    raise ApplicationError(str(error), type=error.code, non_retryable=True) from error
 
 
 class DispatchActivities:
@@ -124,7 +134,7 @@ class DispatchActivities:
                 )
             ).json()
         except RemoteError as error:
-            raise business_error(error) from error
+            raise_for(error)
         held = {h["sku_id"]: h["quantity"] for h in holds if h["status"] == "held"}
         missing = [sku for sku, qty in facts.items if held.get(sku) != qty]
         if missing:
@@ -139,7 +149,7 @@ class DispatchActivities:
         try:
             shipment = (await self.shipment.post(f"/api/v1/shipments/{shipment_id}/labels")).json()
         except RemoteError as error:
-            raise business_error(error) from error
+            raise_for(error)
         return len(shipment["packages"])
 
     @activity.defn(name="assign_courier")
@@ -157,7 +167,7 @@ class DispatchActivities:
                 )
             ).json()
         except RemoteError as error:
-            raise business_error(error) from error
+            raise_for(error)
         return CourierAssignment(
             assignment_id=body["assignment"]["id"],
             courier_id=body["courier"]["id"],
@@ -178,7 +188,7 @@ class DispatchActivities:
                 },
             )
         except RemoteError as error:
-            raise business_error(error) from error
+            raise_for(error)
 
     @activity.defn(name="mark_dispatched")
     async def mark_dispatched(self, request: MarkDispatchedInput) -> None:
@@ -238,7 +248,7 @@ class DispatchActivities:
         try:
             return (await self.shipment.get(f"/api/v1/shipments/{shipment_id}")).json()
         except RemoteError as error:
-            raise business_error(error) from error
+            raise_for(error)
 
     async def _move(
         self, shipment_id: str, status: str, *, reason: str | None, courier_id: str | None = None
@@ -254,4 +264,4 @@ class DispatchActivities:
                 current = await self._get_shipment(shipment_id)
                 if current["status"] == status:
                     return
-            raise business_error(error) from error
+            raise_for(error)

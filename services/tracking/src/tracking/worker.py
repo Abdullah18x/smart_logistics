@@ -59,7 +59,9 @@ async def run() -> None:
     try:
         await stop.wait()
     finally:
-        for task in tasks:
+        # Let the loops close their Kafka clients cleanly; cancel what is still busy.
+        _, pending = await asyncio.wait(tasks, timeout=5)
+        for task in pending:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         await publisher.stop()

@@ -22,6 +22,23 @@ from typing import Any
 logger = logging.getLogger("sl_platform.telemetry")
 
 _provider_ready = False
+_instrumented: set[str | int] = set()
+
+
+def _instrument_clients(engine: Any) -> None:
+    """httpx and SQLAlchemy, once per process (Celery fires two start-up signals)."""
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
+    if "httpx" not in _instrumented:
+        HTTPXClientInstrumentor().instrument()
+        _instrumented.add("httpx")
+    if engine is not None and id(engine) not in _instrumented:
+        # The instrumentation declares SQLAlchemy < 2.1 but only uses the engine
+        # event API, which 2.1 keeps; without skip_dep_check it does nothing.
+        SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, skip_dep_check=True)
+        _instrumented.add(id(engine))
+
 
 try:
     from opentelemetry import propagate, trace
@@ -65,25 +82,16 @@ def setup_telemetry(app: Any, *, service_name: str, endpoint: str | None, engine
     if not setup_tracing(service_name, endpoint):
         return
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
     FastAPIInstrumentor.instrument_app(app, excluded_urls="/health,/health/ready,/metrics")
-    HTTPXClientInstrumentor().instrument()
-    if engine is not None:
-        SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
+    _instrument_clients(engine)
 
 
 def instrument_worker(service_name: str, endpoint: str | None, engine: Any = None) -> None:
     """Tracing for a process without HTTP: outgoing calls and SQL."""
     if not setup_tracing(service_name, endpoint):
         return
-    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-
-    HTTPXClientInstrumentor().instrument()
-    if engine is not None:
-        SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
+    _instrument_clients(engine)
 
 
 def current_traceparent() -> str | None:

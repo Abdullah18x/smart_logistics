@@ -45,6 +45,25 @@ class TestJourneys:
         timeline = (await journey(client, opened["shipment_id"]))["events"]
         assert [e["milestone"] for e in timeline] == ["dispatched"]
 
+    async def test_a_reference_already_used_by_another_shipment_is_a_clear_409(self, client):
+        """Regression: a reference reused after the SQL databases were reset (MongoDB
+        kept) crashed with a 500, which the dispatch workflow retried in vain."""
+        opened = await open_journey(client)
+        clash = await client.post(
+            f"{BASE}/journeys",
+            json={
+                "shipment_id": str(uuid.uuid4()),
+                "reference_no": opened["reference_no"],
+                "courier_id": str(uuid.uuid4()),
+                "origin_warehouse_id": str(uuid.uuid4()),
+                "destination_city": "Karachi",
+            },
+            headers=system(),
+        )
+        assert clash.status_code == 409
+        assert clash.json()["code"] == "reference_in_use"
+        assert opened["shipment_id"] in clash.json()["message"]
+
     async def test_only_the_workflow_opens_journeys(self, client):
         response = await client.post(
             f"{BASE}/journeys",

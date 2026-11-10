@@ -100,6 +100,31 @@ the working tree for Abdullah to review and commit.
 
 Newest first. Each entry: what was done, files touched, test status.
 
+### 2026-11-10 — Fixes from the first run on the Mac
+- `dev.py`: colours for analytics/notification (KeyError on start); launching inside the clean-up
+  `try`; a second Ctrl+C no longer interrupts shutdown; `start` also checks worker / Celery /
+  Temporal-SDK metrics ports so leftovers from a crashed run are named; Celery `-A <svc>.tasks:celery_app`.
+- Platform: `serve_metrics` idempotent; instrumentation once per process; SQLAlchemy 2.1 traced
+  (`skip_dep_check`); FastAPI 0.142 native telemetry switched off (duplicate spans, OTLP metrics
+  404 from Jaeger); retry topics pre-created (no "not found" errors, replays picked up at once).
+- Orchestrator: Temporal SDK metrics port in use logs a warning instead of crashing the worker.
+- Compose: Celery `--pool=solo` (ADR-019 updated).
+- Second Mac run: Celery workers shared the node name `celery@<host>` → RabbitMQ `RESOURCE_LOCKED`;
+  now `-n <service>@%h` (dev.py and Compose), verified against a real RabbitMQ with tasks run
+  end to end. Retry topics created *before* subscribing. Workers (platform, tracking,
+  orchestrator) give loops 5 s to close Kafka clients before cancelling ("Unclosed AIOKafkaConsumer").
+- Access log: successful `/metrics` and `/health*` lines filtered (Prometheus scrapes every 10 s).
+- **Week 2 bug found on the Mac**: dispatch activities did `raise business_error(error) from error`,
+  and for a retryable error (5xx, `concurrent_update`) `business_error` returned the error itself →
+  an exception that is its own cause → Temporal's failure converter recursed (`RecursionError`) and
+  the activity could not be retried. Now `raise_for(error)`; regression test runs Temporal's real
+  failure converter on both kinds.
+- Tracking: a reference number held by another shipment's journey → `409 reference_in_use` (was a
+  500 the dispatch retried); `./dev.sh reset` drops tracking's MongoDB database too. Regression test
+  added (needs MongoDB; logic checked here against a fake collection).
+- `./dev.sh start` warns when a non-Docker process also listens on an infrastructure port (seen:
+  a native MongoDB on the Mac shadowing the container, so wipes never reached tracking's data).
+
 ### 2026-11-10 — Week 3 docs complete
 - New: `docs/phase_3.md`, `docs/manual-test-week3.md`, ADR-019 (Celery), 020 (notification),
   021 (analytics), 022 (observability), 023 (token revocation).

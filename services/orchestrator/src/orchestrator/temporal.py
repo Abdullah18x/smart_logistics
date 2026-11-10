@@ -36,7 +36,11 @@ def metrics_runtime(port: int | None):
         return None
     from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 
-    return Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(f"0.0.0.0:{port}")))
+    try:
+        return Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(f"0.0.0.0:{port}")))
+    except ValueError as exc:  # usually: the port is held by another copy of the worker
+        logger.warning("Temporal SDK metrics on :%s not started: %s", port, exc)
+        return None
 
 
 async def connect(

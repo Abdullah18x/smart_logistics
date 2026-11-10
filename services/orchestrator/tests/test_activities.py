@@ -131,3 +131,24 @@ async def test_cancelling_a_journey_that_never_started_is_fine():
         tracking=lambda r: httpx.Response(404, json={"code": "not_found", "message": "none"})
     )
     await env().run(acts.cancel_tracking, EndInput("s1", "dispatch failed"))
+
+
+async def test_activity_errors_convert_to_temporal_failures_without_looping():
+    """Regression: a retryable error used to be raised `from` itself, and
+    Temporal's failure converter recursed until RecursionError."""
+    from temporalio.api.failure.v1 import Failure
+    from temporalio.converter import DataConverter
+
+    converter = DataConverter.default
+    for response in (
+        httpx.Response(409, json={"code": "concurrent_update", "message": "busy"}),
+        httpx.Response(422, json={"code": "invalid_transition", "message": "no"}),
+    ):
+        acts = activities(shipment=lambda r, response=response: response)
+        with pytest.raises(Exception) as caught:
+            await env().run(acts.mark_dispatched, MarkDispatchedInput("s1", "c1"))
+        error = caught.value
+        assert error.__cause__ is not error
+        failure = Failure()
+        converter.failure_converter.to_failure(error, converter.payload_converter, failure)
+        assert failure.message

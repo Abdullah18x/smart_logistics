@@ -76,6 +76,10 @@ a **DLQ replay CLI**, a **coverage gate in CI**. Load tests moved to Week 4.
 | A user-wide revocation would also block a login in the same second | `iat` has whole-second precision | Tokens carry `iat_ms`; the check compares milliseconds |
 | Per-suite coverage failed the first suite under the gate | pytest-cov applied `fail_under` to each suite | Gate only on the combined report |
 | Test fakes broke after `Publisher.send` gained `headers` | Fakes had the old signature | Updated in identity and tracking tests |
+| A dispatch step hitting a retryable error crashed the orchestrator worker with `RecursionError` instead of retrying (Week 2 bug, first seen in a Week 3 manual run) | The activity raised the error `from` itself; Temporal's failure converter follows causes | `raise_for(error)` never chains an error to itself; regression test converts both kinds of failure |
+| Dispatch retried `start_tracking` eight times against a `500` | After a SQL-only reset, a new shipment reused a reference number still held by an old journey in MongoDB; the duplicate-key handler assumed a concurrent open and dereferenced `None` | `409 reference_in_use` naming the other shipment (dispatch fails cleanly); `./dev.sh reset` also clears tracking's MongoDB |
+| Three Celery workers on one machine: two refused by RabbitMQ (`RESOURCE_LOCKED`) | Same default node name `celery@<host>` | `-n <service>@%h` locally and in Compose |
+| OTLP metrics `404` from Jaeger; possible duplicate request spans | FastAPI 0.142 auto-configures its own OpenTelemetry from `OTEL_EXPORTER_OTLP_ENDPOINT` | Native telemetry switched off; ours stays |
 
 ## 5. Verification
 
